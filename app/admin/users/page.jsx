@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Plus,
@@ -8,76 +8,32 @@ import {
   Edit,
   Trash2,
   Shield,
-  Mail,
   Phone,
   Calendar,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
+import { supabase } from "@/lib/supabase/client"; // assicurati che il path sia corretto
 
 export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  // editMode = true quando stiamo modificando un utente (modal riusato)
+  const [editMode, setEditMode] = useState(false);
+  const [editingUserId, setEditingUserId] = useState(null);
+
   const [newUser, setNewUser] = useState({
     name: "",
-    email: "",
     phone: "",
-    role: "worker",
+    role: "animatore",
     securityCode: "",
     notes: "",
   });
 
-  // Mock users data
-  const users = [
-    {
-      id: 1,
-      name: "Marco Rossi",
-      email: "marco.rossi@email.com",
-      phone: "+39 333 1234567",
-      role: "admin",
-      securityCode: "1234",
-      lastLogin: "2024-01-10 14:30",
-      status: "active",
-      notes: "Responsabile principale",
-    },
-    {
-      id: 2,
-      name: "Luca Bianchi",
-      email: "luca.bianchi@email.com",
-      phone: "+39 333 2345678",
-      role: "manager",
-      securityCode: "5678",
-      lastLogin: "2024-01-10 12:15",
-      status: "active",
-      notes: "Responsabile audio/video",
-    },
-    {
-      id: 3,
-      name: "Sara Verdi",
-      email: "sara.verdi@email.com",
-      phone: "+39 333 3456789",
-      role: "worker",
-      securityCode: "9012",
-      lastLogin: "2024-01-09 16:45",
-      status: "active",
-      notes: "Specialista decorazioni",
-    },
-    {
-      id: 4,
-      name: "Anna Neri",
-      email: "anna.neri@email.com",
-      phone: "+39 333 4567890",
-      role: "worker",
-      securityCode: "3456",
-      lastLogin: "2024-01-08 09:20",
-      status: "inactive",
-      notes: "In ferie fino al 20/01",
-    },
-  ];
-
+  // roles allineati alla tua tabella (italiano)
   const roles = [
-    { value: "admin", label: "Amministratore", color: "text-danger" },
-    { value: "manager", label: "Manager", color: "text-secondary" },
-    { value: "worker", label: "Operatore", color: "text-primary" },
+    { value: "amministratore", label: "Amministratore", color: "text-danger" },
+    { value: "magazziniere", label: "Magazziniere", color: "text-secondary" },
+    { value: "animatore", label: "Animatore", color: "text-primary" },
   ];
 
   const getRoleColor = (role) => {
@@ -90,39 +46,195 @@ export default function UsersPage() {
     return roleObj ? roleObj.label : role;
   };
 
-  const getStatusColor = (status) => {
-    return status === "active" ? "status-active" : "status-pending";
+  // Stato per utenti presi dal DB
+  const [dbUsers, setDbUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Stato per cancellazione (confirm)
+  const [deleteConfirm, setDeleteConfirm] = useState({
+    show: false,
+    userId: null,
+    userName: "",
+  });
+
+  // Funzione per fetchare utenti dal DB Supabase
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .ilike("nome", `%${searchTerm}%`)
+        .order("nome", { ascending: true });
+
+      if (error) {
+        console.error("Errore fetching users:", error);
+        setDbUsers([]);
+        return;
+      }
+      // mappa i campi DB nella stessa shape usata dall'interfaccia
+      const mapped = data.map((item) => ({
+        id: item.id,
+        name: item.nome ?? "",
+        phone: item.telefono ?? "",
+        role: item.ruolo ?? "animatore",
+        securityCode: item.codice_sicurezza ?? "",
+        notes: item.note ?? "",
+        // opzionali: lastLogin/status se li hai nella tabella
+        lastLogin: item.last_login ?? "",
+        status: item.status ?? "active",
+      }));
+      setDbUsers(mapped);
+    } catch (err) {
+      console.error("Exception fetching utenti:", err);
+      setDbUsers([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getStatusText = (status) => {
-    return status === "active" ? "Attivo" : "Inattivo";
-  };
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
-  const handleAddUser = (e) => {
-    e.preventDefault();
-    // Mock add user - in real app this would call API
-    console.log("Adding user:", newUser);
-    setShowAddForm(false);
-    setNewUser({
-      name: "",
-      email: "",
-      phone: "",
-      role: "worker",
-      securityCode: "",
-      notes: "",
-    });
-  };
-
+  // Genera codice sicurezza 4 cifre
   const generateSecurityCode = () => {
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     setNewUser((prev) => ({ ...prev, securityCode: code }));
   };
 
-  const filteredUsers = users.filter(
+  // Aggiungi o modifica utente
+  const handleAddOrEditUser = async (e) => {
+    e.preventDefault();
+
+    // validazioni minime
+    if (!newUser.name || !newUser.phone || !newUser.securityCode) {
+      alert("Compila nome, telefono e codice di sicurezza.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      if (editMode && editingUserId) {
+        // UPDATE
+        const { data, error } = await supabase
+          .from("users")
+          .update({
+            nome: newUser.name,
+            telefono: newUser.phone,
+            ruolo: newUser.role,
+            codice_sicurezza: newUser.securityCode,
+            note: newUser.notes,
+          })
+          .eq("id", editingUserId)
+          .select();
+
+        if (error) {
+          console.error("Errore updating user:", error);
+          alert("Errore durante la modifica dell'utente.");
+        } else {
+          // aggiorna la lista
+          await fetchUsers();
+          setShowAddForm(false);
+          setEditMode(false);
+          setEditingUserId(null);
+          setNewUser({
+            name: "",
+            phone: "",
+            role: "amministratore",
+            securityCode: "",
+            notes: "",
+          });
+        }
+      } else {
+        // INSERT
+        const { data, error } = await supabase
+          .from("users")
+          .insert([
+            {
+              nome: newUser.name,
+              telefono: newUser.phone,
+              ruolo: newUser.role,
+              codice_sicurezza: newUser.securityCode,
+              note: newUser.notes,
+            },
+          ])
+          .select();
+
+        if (error) {
+          console.error("Errore inserting user:", error);
+          alert("Errore durante la creazione dell'utente.");
+        } else {
+          // aggiorna la lista
+          await fetchUsers();
+          setShowAddForm(false);
+          setNewUser({
+            name: "",
+            phone: "",
+            role: "amministratore",
+            securityCode: "",
+            notes: "",
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Exception add/edit user:", err);
+      alert("Errore inatteso.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Apri modal modifica
+  const handleStartEdit = (user) => {
+    setEditMode(true);
+    setEditingUserId(user.id);
+    setNewUser({
+      name: user.name || "",
+      phone: user.phone || "",
+      role: user.role || "animatore",
+      securityCode: user.securityCode || "",
+      notes: user.notes || "",
+    });
+    setShowAddForm(true);
+  };
+
+  // Cancella con conferma
+  const handleRequestDelete = (user) => {
+    setDeleteConfirm({ show: true, userId: user.id, userName: user.name });
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirm({ show: false, userId: null, userName: "" });
+  };
+
+  const handleConfirmDelete = async () => {
+    const id = deleteConfirm.userId;
+    if (!id) return;
+    try {
+      setLoading(true);
+      const { error } = await supabase.from("users").delete().eq("id", id);
+      if (error) {
+        console.error("Errore delete user:", error);
+        alert("Errore durante la cancellazione.");
+      } else {
+        await fetchUsers();
+        handleCancelDelete();
+      }
+    } catch (err) {
+      console.error("Exception deleting user:", err);
+      alert("Errore inatteso durante la cancellazione.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const allUsers = dbUsers;
+
+  const filteredUsers = allUsers.filter(
     (user) =>
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.phone.includes(searchTerm)
+      (user.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.phone || "").includes(searchTerm)
   );
 
   return (
@@ -145,13 +257,32 @@ export default function UsersPage() {
                 Gestisci tutti gli utenti del sistema
               </p>
             </div>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="btn-primary flex items-center space-x-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Nuovo Utente</span>
-            </button>
+            <div className="flex items-center gap-4">
+              {loading ? (
+                <span className="text-sm text-muted-foreground">
+                  Caricamento utenti...
+                </span>
+              ) : null}
+              <button
+                onClick={() => {
+                  // reset form e set add mode
+                  setEditMode(false);
+                  setEditingUserId(null);
+                  setNewUser({
+                    name: "",
+                    phone: "",
+                    role: "animatore",
+                    securityCode: "",
+                    notes: "",
+                  });
+                  setShowAddForm(true);
+                }}
+                className="btn-primary flex items-center space-x-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nuovo Utente</span>
+              </button>
+            </div>
           </div>
 
           {/* Search */}
@@ -190,19 +321,9 @@ export default function UsersPage() {
                       >
                         {getRoleLabel(user.role)}
                       </span>
-                      <span className={getStatusColor(user.status)}>
-                        {getStatusText(user.status)}
-                      </span>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                      <div className="flex items-center space-x-2">
-                        <Mail className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Email:</span>
-                        <span className="font-medium text-foreground">
-                          {user.email}
-                        </span>
-                      </div>
                       <div className="flex items-center space-x-2">
                         <Phone className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Telefono:</span>
@@ -217,15 +338,6 @@ export default function UsersPage() {
                           {user.securityCode}
                         </span>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          Ultimo accesso:
-                        </span>
-                        <span className="font-medium text-foreground">
-                          {user.lastLogin}
-                        </span>
-                      </div>
                     </div>
 
                     {user.notes && (
@@ -236,19 +348,33 @@ export default function UsersPage() {
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <button className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors">
+                    <button
+                      onClick={() => handleStartEdit(user)}
+                      className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors"
+                      title="Modifica"
+                    >
                       <Edit className="w-4 h-4" />
                     </button>
-                    <button className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors">
+                    <button
+                      onClick={() => handleRequestDelete(user)}
+                      className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
+                      title="Elimina"
+                    >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
               </motion.div>
             ))}
+
+            {filteredUsers.length === 0 && !loading && (
+              <div className="p-6 bg-card rounded-xl border border-border text-center text-muted-foreground">
+                Nessun utente trovato.
+              </div>
+            )}
           </div>
 
-          {/* Add User Modal */}
+          {/* Add / Edit User Modal (riusa lo stesso modal) */}
           {showAddForm && (
             <motion.div
               initial={{ opacity: 0 }}
@@ -261,10 +387,10 @@ export default function UsersPage() {
                 className="bg-card p-6 rounded-xl border border-border max-w-2xl w-full max-h-[90vh] overflow-y-auto"
               >
                 <h3 className="text-xl font-semibold text-foreground mb-4">
-                  Crea Nuovo Utente
+                  {editMode ? "Modifica Utente" : "Crea Nuovo Utente"}
                 </h3>
 
-                <form onSubmit={handleAddUser} className="space-y-4">
+                <form onSubmit={handleAddOrEditUser} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
@@ -277,24 +403,6 @@ export default function UsersPage() {
                           setNewUser((prev) => ({
                             ...prev,
                             name: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Email
-                      </label>
-                      <input
-                        type="email"
-                        value={newUser.email}
-                        onChange={(e) =>
-                          setNewUser((prev) => ({
-                            ...prev,
-                            email: e.target.value,
                           }))
                         }
                         className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
@@ -396,16 +504,65 @@ export default function UsersPage() {
                   <div className="flex space-x-3 pt-4">
                     <button
                       type="button"
-                      onClick={() => setShowAddForm(false)}
+                      onClick={() => {
+                        setShowAddForm(false);
+                        setEditMode(false);
+                        setEditingUserId(null);
+                        setNewUser({
+                          name: "",
+                          phone: "",
+                          role: "animatore",
+                          securityCode: "",
+                          notes: "",
+                        });
+                      }}
                       className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
                     >
                       Annulla
                     </button>
                     <button type="submit" className="flex-1 btn-primary">
-                      Crea Utente
+                      {editMode ? "Salva Modifiche" : "Crea Utente"}
                     </button>
                   </div>
                 </form>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* Delete Confirm Modal */}
+          {deleteConfirm.show && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-card p-6 rounded-xl border border-border max-w-md w-full"
+              >
+                <h3 className="text-lg font-semibold text-foreground mb-2">
+                  Sei sicuro?
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Vuoi davvero eliminare{" "}
+                  <strong>{deleteConfirm.userName}</strong>? Questa azione non è
+                  reversibile.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={handleCancelDelete}
+                    className="px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    onClick={handleConfirmDelete}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Elimina
+                  </button>
+                </div>
               </motion.div>
             </motion.div>
           )}

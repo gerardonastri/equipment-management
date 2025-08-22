@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
@@ -14,6 +14,7 @@ import {
   Calendar,
   Clock,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase/client";
 
 export default function CheckPage({ params }) {
   const router = useRouter();
@@ -23,8 +24,17 @@ export default function CheckPage({ params }) {
   const [checkType, setCheckType] = useState("");
   const [checkedItems, setCheckedItems] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  useEffect(() => {
+    const savedUser = sessionStorage.getItem("currentUser");
+    if (savedUser) {
+      const userData = JSON.parse(savedUser);
+      setCurrentUser(userData);
+      setIsAuthenticated(true);
+    }
+  }, []);
 
-  // Mock data - in real app this would come from API
   const shelfData = {
     id: params.shelfId,
     party: "Matrimonio Villa Rosa",
@@ -156,12 +166,49 @@ export default function CheckPage({ params }) {
     },
   ];
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    // Mock authentication - in real app this would validate against API
-    if (loginData.name && loginData.code) {
-      setCurrentUser(loginData.name);
+    setIsLoggingIn(true);
+    setLoginError("");
+
+    try {
+      console.log("[v0] Attempting login with:", {
+        name: loginData.name,
+        code: loginData.code,
+      });
+
+      const { data: users, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("nome", loginData.name)
+        .eq("codice_sicurezza", loginData.code)
+        .limit(1);
+
+      if (error) {
+        console.error("[v0] Supabase error:", error);
+        throw error;
+      }
+
+      console.log("[v0] Query result:", users);
+
+      if (!users || users.length === 0) {
+        setLoginError("Nome o codice di sicurezza non validi");
+        return;
+      }
+
+      const user = users[0];
+      console.log("[v0] User authenticated:", user);
+
+      sessionStorage.setItem("currentUser", JSON.stringify(user));
+
+      setCurrentUser(user);
       setIsAuthenticated(true);
+      setLoginError("");
+    } catch (error) {
+      console.error("[v0] Login error:", error);
+      setLoginError("Errore durante l'autenticazione. Riprova.");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -176,20 +223,62 @@ export default function CheckPage({ params }) {
   const handleSubmitCheck = async () => {
     setIsSubmitting(true);
 
-    // Mock API call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const checkData = {
+        shelf_id: params.shelfId,
+        user_id: currentUser.id,
+        user_name: currentUser.nome,
+        check_type: checkType,
+        checked_items: checkedItems,
+        completed_at: new Date().toISOString(),
+        total_items: getTotalItems(),
+        checked_count: getCheckedCount(),
+      };
 
-    // In real app, send data to API
-    console.log("Check submitted:", {
-      shelfId: params.shelfId,
-      user: currentUser,
-      checkType,
-      checkedItems,
-      timestamp: new Date().toISOString(),
-    });
+      console.log("[v0] Simulated check data:", checkData);
+
+      const checkTypeNames = {
+        load_truck: "Carico al Furgone",
+        unload_truck: "Scarico dal Furgone",
+        return_warehouse: "Scarico al Deposito",
+      };
+
+      const notificationData = {
+        title: `Check Completato - Scaffale ${params.shelfId}`,
+        message: `${currentUser.nome} ha completato il check "${
+          checkTypeNames[checkType]
+        }" per lo scaffale ${
+          params.shelfId
+        }. Elementi controllati: ${getCheckedCount()}/${getTotalItems()}`,
+        user_id: currentUser.id,
+        is_read: false,
+      };
+
+      const { data: notification, error: notificationError } = await supabase
+        .from("notifications")
+        .insert(notificationData)
+        .select()
+        .single();
+
+      if (notificationError) {
+        console.error("[v0] Error creating notification:", notificationError);
+        throw notificationError;
+      }
+
+      console.log("[v0] Notification created successfully:", notification);
+
+      alert(
+        `Check ${checkTypeNames[checkType]} completato con successo!\nNotifica inviata all'amministratore.`
+      );
+
+      setCheckedItems({});
+      setCheckType("");
+    } catch (error) {
+      console.error("[v0] Error submitting check:", error);
+      alert("Errore durante l'invio del check. Riprova.");
+    }
 
     setIsSubmitting(false);
-    router.push("/");
   };
 
   const getTotalItems = () => {
@@ -232,6 +321,12 @@ export default function CheckPage({ params }) {
             </p>
           </div>
 
+          {loginError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-4">
+              {loginError}
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">
@@ -246,6 +341,7 @@ export default function CheckPage({ params }) {
                 className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="Il tuo nome"
                 required
+                disabled={isLoggingIn}
               />
             </div>
 
@@ -262,11 +358,23 @@ export default function CheckPage({ params }) {
                 className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="Codice"
                 required
+                disabled={isLoggingIn}
               />
             </div>
 
-            <button type="submit" className="w-full btn-primary">
-              Accedi al Check
+            <button
+              type="submit"
+              className="w-full btn-primary"
+              disabled={isLoggingIn}
+            >
+              {isLoggingIn ? (
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Accesso in corso...</span>
+                </div>
+              ) : (
+                "Accedi al Check"
+              )}
             </button>
           </form>
         </motion.div>
@@ -283,14 +391,6 @@ export default function CheckPage({ params }) {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-2xl mx-auto"
           >
-            <button
-              onClick={() => router.push("/")}
-              className="flex items-center space-x-2 text-muted-foreground hover:text-foreground mb-6"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Torna alla Dashboard</span>
-            </button>
-
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <h1 className="text-2xl font-bold text-foreground mb-4">
                 Scaffale {params.shelfId}
@@ -351,7 +451,7 @@ export default function CheckPage({ params }) {
                             {type.name}
                           </h3>
                           <p className="text-muted-foreground text-sm">
-                            Utente: {currentUser}
+                            Utente: {currentUser.nome}
                           </p>
                         </div>
                       </div>
@@ -374,7 +474,6 @@ export default function CheckPage({ params }) {
           animate={{ opacity: 1, y: 0 }}
           className="max-w-4xl mx-auto"
         >
-          {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <button
               onClick={() => setCheckType("")}
@@ -386,7 +485,10 @@ export default function CheckPage({ params }) {
 
             <div className="text-right">
               <p className="text-sm text-muted-foreground">
-                Utente: {currentUser}
+                Utente: {currentUser.nome}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Ruolo: {currentUser.ruolo}
               </p>
               <p className="text-sm text-muted-foreground">
                 {checkTypes.find((t) => t.id === checkType)?.name}
@@ -394,7 +496,6 @@ export default function CheckPage({ params }) {
             </div>
           </div>
 
-          {/* Progress */}
           <div className="bg-card p-6 rounded-xl border border-border mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-foreground">
@@ -413,7 +514,6 @@ export default function CheckPage({ params }) {
             </div>
           </div>
 
-          {/* Material Categories */}
           <div className="space-y-6">
             {Object.entries(materialCategories).map(
               ([categoryKey, category]) => (
@@ -481,7 +581,6 @@ export default function CheckPage({ params }) {
             )}
           </div>
 
-          {/* Submit Button */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
