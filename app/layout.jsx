@@ -4,9 +4,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "Material Manager - Gestione Materiale Feste",
-  description:
-    "Sistema di gestione materiale per agenzia feste con QR code e controlli multipli",
+  title: "Movida Manager - Gestione Materiale Feste",
+  description: "Sistema di gestione materiale",
 };
 
 export default function RootLayout({ children }) {

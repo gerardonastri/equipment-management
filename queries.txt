@@ -1,0 +1,155 @@
+//admin into user
+INSERT INTO users (id, nome, telefono, ruolo, codice_sicurezza, note) 
+VALUES ('00acd0a3-d991-4275-a467-1f002607f2ed', 'Admin Gerardo', '3459945818', 'amministratore', '0000', 'Amministratore principale');
+
+//items
+-- Salterello
+WITH salterello AS (
+  INSERT INTO inventory_items (name, type) 
+  VALUES ('Salterello', 'macro')
+  RETURNING id
+),
+motore AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Motore', 'categoria' FROM salterello
+  RETURNING id
+),
+adattatore AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Adattatore presa', 'sotto' FROM motore
+),
+gonfiabile AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Gonfiabile', 'categoria' FROM salterello
+  RETURNING id
+),
+corde AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Corde', 'sotto' FROM gonfiabile
+),
+tappeti AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Tappeti', 'categoria' FROM salterello
+)
+SELECT 1;
+
+-- Scivolo
+WITH scivolo AS (
+  INSERT INTO inventory_items (name, type) 
+  VALUES ('Scivolo', 'macro')
+  RETURNING id
+),
+motore AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Motore', 'categoria' FROM scivolo
+  RETURNING id
+),
+adattatore AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Adattatore presa', 'sotto' FROM motore
+),
+gonfiabile AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Gonfiabile', 'categoria' FROM scivolo
+  RETURNING id
+),
+corde AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Corde', 'sotto' FROM gonfiabile
+),
+tappeti AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Tappeti', 'categoria' FROM scivolo
+)
+SELECT 1;
+
+-- Baby SPA
+WITH babyspa AS (
+  INSERT INTO inventory_items (name, type) 
+  VALUES ('Baby SPA', 'macro')
+  RETURNING id
+),
+tavolini AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Tavolini', 'categoria' FROM babyspa
+  RETURNING id
+),
+piedi AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Piedi', 'sotto' FROM tavolini
+),
+cuscini AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Cuscini', 'categoria' FROM babyspa
+),
+valigia_grande AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Valigia grande', 'categoria' FROM babyspa
+  RETURNING id
+),
+pigia AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Pigia piedi', 'sotto' FROM valigia_grande
+),
+specchi AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Specchi', 'sotto' FROM valigia_grande
+),
+piastre AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Piastre', 'sotto' FROM valigia_grande
+),
+asciugamani AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Asciugamani', 'sotto' FROM valigia_grande
+),
+portafiori AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Portafiori con piume', 'sotto' FROM valigia_grande
+),
+cassetti AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Cassetti specchiera', 'sotto' FROM valigia_grande
+),
+grembiuli AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Grembiuli', 'sotto' FROM valigia_grande
+),
+due_creme AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Due creme', 'sotto' FROM valigia_grande
+),
+valigia_trucco AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Valigia trucco', 'categoria' FROM babyspa
+  RETURNING id
+),
+smalti AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Smalti', 'sotto' FROM valigia_trucco
+),
+mascara AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Mascara', 'sotto' FROM valigia_trucco
+),
+rossetti AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Rossetti', 'sotto' FROM valigia_trucco
+),
+acetone AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Acetone', 'sotto' FROM valigia_trucco
+),
+ombretti AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Ombretti', 'sotto' FROM valigia_trucco
+),
+eyeliner AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Eye liner', 'sotto' FROM valigia_trucco
+),
+dischetti AS (
+  INSERT INTO inventory_items (parent_id, name, type)
+  SELECT id, 'Dischetti', 'sotto' FROM valigia_trucco
+)
+SELECT 1;

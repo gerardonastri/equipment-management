@@ -1,220 +1,215 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Plus,
   Search,
-  Edit,
   Trash2,
   Filter,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
+import { createBrowserClient } from "@supabase/ssr";
 
 export default function InventoryPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [expandedCategories, setExpandedCategories] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
+  const [inventory, setInventory] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [newItem, setNewItem] = useState({
     name: "",
-    macroCategory: "",
-    category: "",
-    subCategory: "",
-    quantity: "",
-    description: "",
+    type: "sotto",
+    parent_id: "",
   });
 
-  // Mock inventory data
-  const inventory = {
-    audio: {
-      name: "Audio",
-      icon: "🎵",
-      color: "text-primary",
-      categories: {
-        speakers: {
-          name: "Casse",
-          items: [
-            {
-              id: 1,
-              name: 'Cassa JBL 15"',
-              quantity: 8,
-              description: "Cassa attiva 400W",
-            },
-            {
-              id: 2,
-              name: 'Cassa JBL 12"',
-              quantity: 12,
-              description: "Cassa attiva 300W",
-            },
-            {
-              id: 3,
-              name: 'Subwoofer 18"',
-              quantity: 4,
-              description: "Subwoofer attivo 800W",
-            },
-          ],
-        },
-        microphones: {
-          name: "Microfoni",
-          items: [
-            {
-              id: 4,
-              name: "Microfono wireless Shure",
-              quantity: 6,
-              description: "Microfono wireless professionale",
-            },
-            {
-              id: 5,
-              name: "Microfono a filo",
-              quantity: 10,
-              description: "Microfono dinamico cardioide",
-            },
-          ],
-        },
-      },
-    },
-    lighting: {
-      name: "Illuminazione",
-      icon: "💡",
-      color: "text-secondary",
-      categories: {
-        led: {
-          name: "LED",
-          items: [
-            {
-              id: 6,
-              name: "Faro LED 200W",
-              quantity: 15,
-              description: "Faro LED RGBW",
-            },
-            {
-              id: 7,
-              name: "Striscia LED",
-              quantity: 20,
-              description: "Striscia LED 5m RGB",
-            },
-          ],
-        },
-        effects: {
-          name: "Effetti",
-          items: [
-            {
-              id: 8,
-              name: "Macchina del fumo",
-              quantity: 3,
-              description: "Macchina del fumo 1500W",
-            },
-            {
-              id: 9,
-              name: "Laser RGB",
-              quantity: 2,
-              description: "Laser show RGB 500mW",
-            },
-          ],
-        },
-      },
-    },
-    decorations: {
-      name: "Decorazioni",
-      icon: "🎨",
-      color: "text-accent",
-      categories: {
-        flowers: {
-          name: "Fiori",
-          items: [
-            {
-              id: 10,
-              name: "Centrotavola rose",
-              quantity: 25,
-              description: "Centrotavola con rose rosse",
-            },
-            {
-              id: 11,
-              name: "Bouquet sposa",
-              quantity: 5,
-              description: "Bouquet misto stagionale",
-            },
-          ],
-        },
-        furniture: {
-          name: "Arredamento",
-          items: [
-            {
-              id: 12,
-              name: "Tavolo rotondo 8 posti",
-              quantity: 30,
-              description: "Tavolo rotondo diametro 180cm",
-            },
-            {
-              id: 13,
-              name: "Sedia chiavarina",
-              quantity: 200,
-              description: "Sedia chiavarina dorata",
-            },
-          ],
-        },
-      },
-    },
-  };
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
 
-  const toggleCategory = (categoryKey) => {
+  useEffect(() => {
+    const fetchInventory = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("inventory_items")
+          .select("*")
+          .order("name", { ascending: true });
+
+        if (error) {
+          console.error("Errore fetch inventario:", error.message);
+          return;
+        }
+
+        // Ricostruisci la gerarchia
+        const macros = data.filter((item) => item.type === "macro");
+        const categories = data.filter((item) => item.type === "categoria");
+        const subs = data.filter((item) => item.type === "sotto");
+
+        const structured = macros.map((macro) => {
+          const macroCategories = categories
+            .filter((c) => c.parent_id === macro.id)
+            .map((cat) => ({
+              ...cat,
+              subs: subs.filter((s) => s.parent_id === cat.id),
+            }));
+
+          return { ...macro, categories: macroCategories };
+        });
+
+        setInventory(structured);
+      } catch (error) {
+        console.error("Errore durante il fetch:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchInventory();
+  }, []);
+
+  const toggleCategory = (categoryId) => {
     setExpandedCategories((prev) => ({
       ...prev,
-      [categoryKey]: !prev[categoryKey],
+      [categoryId]: !prev[categoryId],
     }));
   };
 
-  const handleAddItem = (e) => {
+  const handleAddItem = async (e) => {
     e.preventDefault();
-    // Mock add item - in real app this would call API
-    console.log("Adding item:", newItem);
-    setShowAddForm(false);
-    setNewItem({
-      name: "",
-      macroCategory: "",
-      category: "",
-      subCategory: "",
-      quantity: "",
-      description: "",
-    });
+
+    try {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .insert([newItem])
+        .select();
+
+      if (error) {
+        console.error("Errore aggiunta item:", error.message);
+        return;
+      }
+
+      // Refresh inventory data
+      const { data: allData, error: fetchError } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .order("name", { ascending: true });
+
+      if (!fetchError) {
+        const macros = allData.filter((item) => item.type === "macro");
+        const categories = allData.filter((item) => item.type === "categoria");
+        const subs = allData.filter((item) => item.type === "sotto");
+
+        const structured = macros.map((macro) => {
+          const macroCategories = categories
+            .filter((c) => c.parent_id === macro.id)
+            .map((cat) => ({
+              ...cat,
+              subs: subs.filter((s) => s.parent_id === cat.id),
+            }));
+
+          return { ...macro, categories: macroCategories };
+        });
+
+        setInventory(structured);
+      }
+
+      setShowAddForm(false);
+      setNewItem({
+        name: "",
+        type: "sotto",
+        parent_id: "",
+      });
+    } catch (error) {
+      console.error("Errore durante l'aggiunta:", error);
+    }
+  };
+
+  const handleDeleteItem = async (itemId) => {
+    if (!confirm("Sei sicuro di voler eliminare questo elemento?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .delete()
+        .eq("id", itemId);
+
+      if (error) {
+        console.error("Errore eliminazione item:", error.message);
+        return;
+      }
+
+      // Refresh inventory data
+      const { data: allData, error: fetchError } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .order("name", { ascending: true });
+
+      if (!fetchError) {
+        const macros = allData.filter((item) => item.type === "macro");
+        const categories = allData.filter((item) => item.type === "categoria");
+        const subs = allData.filter((item) => item.type === "sotto");
+
+        const structured = macros.map((macro) => {
+          const macroCategories = categories
+            .filter((c) => c.parent_id === macro.id)
+            .map((cat) => ({
+              ...cat,
+              subs: subs.filter((s) => s.parent_id === cat.id),
+            }));
+
+          return { ...macro, categories: macroCategories };
+        });
+
+        setInventory(structured);
+      }
+    } catch (error) {
+      console.error("Errore durante l'eliminazione:", error);
+    }
   };
 
   const filteredInventory = () => {
-    if (selectedCategory === "all" && !searchTerm) return inventory;
+    if (!searchTerm && selectedCategory === "all") return inventory;
 
-    const filtered = {};
-    Object.entries(inventory).forEach(([macroKey, macro]) => {
-      if (selectedCategory !== "all" && selectedCategory !== macroKey) return;
+    return inventory.filter((macro) => {
+      if (selectedCategory !== "all" && selectedCategory !== macro.id)
+        return false;
 
-      const filteredCategories = {};
-      Object.entries(macro.categories).forEach(([catKey, category]) => {
-        const filteredItems = category.items.filter(
-          (item) =>
-            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.description.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesMacro = macro.name
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
+      const hasMatchingCategories = macro.categories.some((cat) => {
+        const matchesCategory = cat.name
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase());
+        const hasMatchingSubs = cat.subs.some((sub) =>
+          sub.name.toLowerCase().includes(searchTerm.toLowerCase())
         );
-
-        if (filteredItems.length > 0) {
-          filteredCategories[catKey] = {
-            ...category,
-            items: filteredItems,
-          };
-        }
+        return matchesCategory || hasMatchingSubs;
       });
 
-      if (Object.keys(filteredCategories).length > 0) {
-        filtered[macroKey] = {
-          ...macro,
-          categories: filteredCategories,
-        };
-      }
+      return matchesMacro || hasMatchingCategories;
     });
-
-    return filtered;
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <Navbar />
+        <main className="containerMod py-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Caricamento inventario...</p>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-surface">
@@ -266,9 +261,11 @@ export default function InventoryPage() {
                   className="px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <option value="all">Tutte le categorie</option>
-                  <option value="audio">Audio</option>
-                  <option value="lighting">Illuminazione</option>
-                  <option value="decorations">Decorazioni</option>
+                  {inventory.map((macro) => (
+                    <option key={macro.id} value={macro.id}>
+                      {macro.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -276,87 +273,103 @@ export default function InventoryPage() {
 
           {/* Inventory List */}
           <div className="space-y-4">
-            {Object.entries(filteredInventory()).map(([macroKey, macro]) => (
+            {filteredInventory().map((macro) => (
               <motion.div
-                key={macroKey}
+                key={macro.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-card rounded-xl border border-border overflow-hidden"
               >
                 <button
-                  onClick={() => toggleCategory(macroKey)}
+                  onClick={() => toggleCategory(macro.id)}
                   className="w-full p-6 flex items-center justify-between hover:bg-surface transition-colors"
                 >
                   <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{macro.icon}</span>
-                    <h2 className={`text-xl font-semibold ${macro.color}`}>
+                    <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
+                      <span className="text-white font-bold text-sm">
+                        {macro.name.charAt(0)}
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-semibold text-primary">
                       {macro.name}
                     </h2>
                     <span className="text-sm text-muted-foreground">
                       (
-                      {Object.values(macro.categories).reduce(
-                        (acc, cat) => acc + cat.items.length,
+                      {macro.categories.reduce(
+                        (acc, cat) => acc + cat.subs.length,
                         0
                       )}{" "}
                       elementi)
                     </span>
                   </div>
-                  {expandedCategories[macroKey] ? (
-                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                  )}
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteItem(macro.id);
+                      }}
+                      className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    {expandedCategories[macro.id] ? (
+                      <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </div>
                 </button>
 
-                {expandedCategories[macroKey] && (
+                {expandedCategories[macro.id] && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
                     className="border-t border-border"
                   >
-                    {Object.entries(macro.categories).map(
-                      ([catKey, category]) => (
-                        <div
-                          key={catKey}
-                          className="p-6 border-b border-border last:border-b-0"
-                        >
-                          <h3 className="font-semibold text-foreground mb-4">
+                    {macro.categories.map((category) => (
+                      <div
+                        key={category.id}
+                        className="p-6 border-b border-border last:border-b-0"
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-semibold text-foreground">
                             {category.name}
                           </h3>
-                          <div className="space-y-2">
-                            {category.items.map((item) => (
-                              <div
-                                key={item.id}
-                                className="flex items-center justify-between p-4 bg-surface rounded-lg hover:bg-card transition-colors"
-                              >
-                                <div className="flex-1">
-                                  <h4 className="font-medium text-foreground">
-                                    {item.name}
-                                  </h4>
-                                  <p className="text-sm text-muted-foreground">
-                                    {item.description}
-                                  </p>
-                                </div>
-                                <div className="flex items-center space-x-4">
-                                  <span className="text-sm font-medium text-foreground">
-                                    Qty: {item.quantity}
-                                  </span>
-                                  <div className="flex items-center space-x-2">
-                                    <button className="p-2 text-muted-foreground hover:text-foreground hover:bg-card rounded-lg transition-colors">
-                                      <Edit className="w-4 h-4" />
-                                    </button>
-                                    <button className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors">
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                          <button
+                            onClick={() => handleDeleteItem(category.id)}
+                            className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                      )
-                    )}
+                        <div className="space-y-2">
+                          {category.subs.map((sub) => (
+                            <div
+                              key={sub.id}
+                              className="flex items-center justify-between p-4 bg-surface rounded-lg hover:bg-card transition-colors"
+                            >
+                              <div className="flex-1">
+                                <h4 className="font-medium text-foreground">
+                                  {sub.name}
+                                </h4>
+                                <p className="text-sm text-muted-foreground">
+                                  Sotto-categoria
+                                </p>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  onClick={() => handleDeleteItem(sub.id)}
+                                  className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </motion.div>
                 )}
               </motion.div>
@@ -400,60 +413,62 @@ export default function InventoryPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">
-                      Macro Categoria
+                      Tipo
                     </label>
                     <select
-                      value={newItem.macroCategory}
+                      value={newItem.type}
                       onChange={(e) =>
                         setNewItem((prev) => ({
                           ...prev,
-                          macroCategory: e.target.value,
+                          type: e.target.value,
                         }))
                       }
                       className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                       required
                     >
-                      <option value="">Seleziona...</option>
-                      <option value="audio">Audio</option>
-                      <option value="lighting">Illuminazione</option>
-                      <option value="decorations">Decorazioni</option>
+                      <option value="macro">Macro Categoria</option>
+                      <option value="categoria">Categoria</option>
+                      <option value="sotto">Sotto-categoria</option>
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Quantità
-                    </label>
-                    <input
-                      type="number"
-                      value={newItem.quantity}
-                      onChange={(e) =>
-                        setNewItem((prev) => ({
-                          ...prev,
-                          quantity: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Descrizione
-                    </label>
-                    <textarea
-                      value={newItem.description}
-                      onChange={(e) =>
-                        setNewItem((prev) => ({
-                          ...prev,
-                          description: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      rows="3"
-                    />
-                  </div>
+                  {newItem.type !== "macro" && (
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        {newItem.type === "categoria"
+                          ? "Macro Categoria"
+                          : "Categoria"}{" "}
+                        Padre
+                      </label>
+                      <select
+                        value={newItem.parent_id}
+                        onChange={(e) =>
+                          setNewItem((prev) => ({
+                            ...prev,
+                            parent_id: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                        required
+                      >
+                        <option value="">Seleziona...</option>
+                        {newItem.type === "categoria" &&
+                          inventory.map((macro) => (
+                            <option key={macro.id} value={macro.id}>
+                              {macro.name}
+                            </option>
+                          ))}
+                        {newItem.type === "sotto" &&
+                          inventory.flatMap((macro) =>
+                            macro.categories.map((cat) => (
+                              <option key={cat.id} value={cat.id}>
+                                {macro.name} → {cat.name}
+                              </option>
+                            ))
+                          )}
+                      </select>
+                    </div>
+                  )}
 
                   <div className="flex space-x-3 pt-4">
                     <button
