@@ -13,6 +13,7 @@ import {
   User,
   Calendar,
   Clock,
+  Home,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 
@@ -26,6 +27,152 @@ export default function CheckPage({ params }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [partyData, setPartyData] = useState(null);
+  const [isLoadingParty, setIsLoadingParty] = useState(true);
+  const [partyError, setPartyError] = useState("");
+  const [materialData, setMaterialData] = useState([]);
+  const [shelfId, setShelfId] = useState(null);
+  const [existingChecks, setExistingChecks] = useState([]);
+  const [isCheckCompleted, setIsCheckCompleted] = useState(false);
+  useEffect(() => {
+    const resolveParams = async () => {
+      const resolvedParams = await params;
+      setShelfId(resolvedParams.shelfId);
+    };
+    resolveParams();
+  }, [params]);
+
+  useEffect(() => {
+    if (!shelfId) return;
+
+    const loadPartyData = async () => {
+      try {
+        setIsLoadingParty(true);
+        console.log("[v0] Loading party for shelf:", shelfId);
+
+        const { data: parties, error } = await supabase.from("parties").select(`
+            *,
+            animatore:animatore_id(nome, ruolo),
+            magazziniere:magazziniere_id(nome, ruolo)
+          `);
+
+        if (error) throw error;
+
+        console.log("[v0] All parties loaded:", parties);
+
+        const matchingParties =
+          parties?.filter((party) => {
+            if (!party.shelves) return false;
+            const shelvesList = party.shelves.split(",").map((s) => s.trim());
+            return shelvesList.includes(shelfId);
+          }) || [];
+
+        console.log(
+          "[v0] Matching parties for shelf",
+          shelfId,
+          ":",
+          matchingParties
+        );
+
+        if (matchingParties.length === 0) {
+          setPartyError("Nessuna festa trovata per questo scaffale");
+          return;
+        }
+
+        const party = matchingParties[0];
+        setPartyData(party);
+        console.log("[v0] Selected party:", party);
+
+        const { data: checks, error: checksError } = await supabase
+          .from("checks")
+          .select("*")
+          .eq("party_id", party.id);
+
+        if (checksError) throw checksError;
+        setExistingChecks(checks || []);
+
+        const { data: partyMaterial, error: materialError } = await supabase
+          .from("party_inventory")
+          .select(
+            `
+            inventory_items!inner(
+              id,
+              name,
+              type,
+              parent_id
+            )
+          `
+          )
+          .eq("party_id", party.id);
+
+        if (materialError) throw materialError;
+
+        console.log("[v0] Party material loaded:", partyMaterial);
+
+        const macroCategories = partyMaterial
+          .filter((item) => item.inventory_items.type === "macro")
+          .map((item) => item.inventory_items);
+
+        console.log("[v0] Macro categories:", macroCategories);
+
+        const materialHierarchy = [];
+
+        for (const macro of macroCategories) {
+          const { data: categories, error: catError } = await supabase
+            .from("inventory_items")
+            .select("*")
+            .eq("parent_id", macro.id)
+            .eq("type", "categoria");
+
+          if (catError) throw catError;
+
+          const macroData = {
+            id: macro.id,
+            name: macro.name,
+            categories: [],
+          };
+
+          for (const category of categories || []) {
+            const { data: subcategories, error: subError } = await supabase
+              .from("inventory_items")
+              .select("*")
+              .eq("parent_id", category.id)
+              .eq("type", "sotto");
+
+            if (subError) throw subError;
+
+            macroData.categories.push({
+              id: category.id,
+              name: category.name,
+              items: subcategories || [],
+            });
+          }
+
+          materialHierarchy.push(macroData);
+        }
+
+        console.log("[v0] Final material hierarchy:", materialHierarchy);
+        setMaterialData(materialHierarchy);
+      } catch (error) {
+        console.error("[v0] Error loading party data:", error);
+        setPartyError("Errore nel caricamento dei dati della festa");
+      } finally {
+        setIsLoadingParty(false);
+      }
+    };
+
+    loadPartyData();
+  }, [shelfId]);
+
+  useEffect(() => {
+    if (checkType && existingChecks.length > 0) {
+      const isCompleted = existingChecks.some(
+        (check) => check.type === checkType
+      );
+      setIsCheckCompleted(isCompleted);
+    }
+  }, [checkType, existingChecks]);
+
   useEffect(() => {
     const savedUser = sessionStorage.getItem("currentUser");
     if (savedUser) {
@@ -35,134 +182,34 @@ export default function CheckPage({ params }) {
     }
   }, []);
 
-  const shelfData = {
-    id: params.shelfId,
-    party: "Matrimonio Villa Rosa",
-    date: "2024-01-15",
-    location: "Villa Rosa, Milano",
-    responsible: "Marco Rossi",
-  };
-
-  const materialCategories = {
-    audio: {
-      name: "Audio",
-      icon: "🎵",
-      categories: {
-        speakers: {
-          name: "Casse",
-          items: [
-            'Cassa JBL 15"',
-            'Cassa JBL 12"',
-            'Subwoofer 18"',
-            "Monitor da palco",
-          ],
-        },
-        microphones: {
-          name: "Microfoni",
-          items: [
-            "Microfono wireless Shure",
-            "Microfono a filo",
-            "Microfono headset",
-            "Microfono lavalier",
-          ],
-        },
-        mixers: {
-          name: "Mixer",
-          items: [
-            "Mixer 16 canali",
-            "Mixer 8 canali",
-            "Processore audio",
-            "Equalizzatore",
-          ],
-        },
-      },
-    },
-    lighting: {
-      name: "Illuminazione",
-      icon: "💡",
-      categories: {
-        led: {
-          name: "LED",
-          items: [
-            "Faro LED 200W",
-            "Faro LED RGB",
-            "Striscia LED",
-            "Proiettore LED",
-          ],
-        },
-        traditional: {
-          name: "Tradizionale",
-          items: [
-            "Faro alogeno 1000W",
-            "Faro alogeno 500W",
-            "Lampada da terra",
-            "Faretto spot",
-          ],
-        },
-        effects: {
-          name: "Effetti",
-          items: [
-            "Macchina del fumo",
-            "Laser RGB",
-            "Stroboscopio",
-            "Moving head",
-          ],
-        },
-      },
-    },
-    decorations: {
-      name: "Decorazioni",
-      icon: "🎨",
-      categories: {
-        flowers: {
-          name: "Fiori",
-          items: [
-            "Centrotavola rose",
-            "Bouquet sposa",
-            "Composizione ingresso",
-            "Petali sparsi",
-          ],
-        },
-        furniture: {
-          name: "Arredamento",
-          items: [
-            "Tavolo rotondo 8 posti",
-            "Sedia chiavarina",
-            "Tovaglia bianca",
-            "Runner dorato",
-          ],
-        },
-        accessories: {
-          name: "Accessori",
-          items: [
-            "Candele profumate",
-            "Lanterne decorative",
-            "Palloncini",
-            "Nastri colorati",
-          ],
-        },
-      },
-    },
-  };
-
   const checkTypes = [
     {
-      id: "load_truck",
-      name: "Carico al Furgone",
+      id: "deposito_scaffale",
+      name: "Carico dal Deposito allo Scaffale",
+      icon: Home,
+      color: "text-primary",
+      allowedRoles: ["magazziniere", "amministratore"],
+    },
+    {
+      id: "scaffale_furgone",
+      name: "Carico dallo Scaffale al Furgone",
       icon: Truck,
       color: "text-secondary",
+      allowedRoles: ["animatore", "magazziniere", "amministratore"],
     },
     {
-      id: "unload_truck",
-      name: "Scarico dal Furgone",
+      id: "furgone_scaffale",
+      name: "Scarico dal Furgone allo Scaffale",
       icon: MapPin,
       color: "text-accent",
+      allowedRoles: ["animatore", "magazziniere", "amministratore"],
     },
     {
-      id: "return_warehouse",
-      name: "Scarico al Deposito",
+      id: "scaffale_deposito",
+      name: "Scarico dallo Scaffale al Deposito",
       icon: Package,
       color: "text-primary",
+      allowedRoles: ["magazziniere", "amministratore"],
     },
   ];
 
@@ -172,11 +219,6 @@ export default function CheckPage({ params }) {
     setLoginError("");
 
     try {
-      console.log("[v0] Attempting login with:", {
-        name: loginData.name,
-        code: loginData.code,
-      });
-
       const { data: users, error } = await supabase
         .from("users")
         .select("*")
@@ -184,12 +226,7 @@ export default function CheckPage({ params }) {
         .eq("codice_sicurezza", loginData.code)
         .limit(1);
 
-      if (error) {
-        console.error("[v0] Supabase error:", error);
-        throw error;
-      }
-
-      console.log("[v0] Query result:", users);
+      if (error) throw error;
 
       if (!users || users.length === 0) {
         setLoginError("Nome o codice di sicurezza non validi");
@@ -197,10 +234,7 @@ export default function CheckPage({ params }) {
       }
 
       const user = users[0];
-      console.log("[v0] User authenticated:", user);
-
       sessionStorage.setItem("currentUser", JSON.stringify(user));
-
       setCurrentUser(user);
       setIsAuthenticated(true);
       setLoginError("");
@@ -212,11 +246,19 @@ export default function CheckPage({ params }) {
     }
   };
 
-  const handleItemCheck = (categoryKey, subcategoryKey, itemIndex) => {
-    const itemKey = `${categoryKey}-${subcategoryKey}-${itemIndex}`;
+  const handleItemCheck = (macroId, categoryId, itemId) => {
+    const itemKey = `${macroId}-${categoryId}-${itemId}`;
     setCheckedItems((prev) => ({
       ...prev,
       [itemKey]: !prev[itemKey],
+    }));
+  };
+
+  const handleCategoryCheck = (macroId, categoryId) => {
+    const categoryKey = `${macroId}-${categoryId}`;
+    setCheckedItems((prev) => ({
+      ...prev,
+      [categoryKey]: !prev[categoryKey],
     }));
   };
 
@@ -225,47 +267,43 @@ export default function CheckPage({ params }) {
 
     try {
       const checkData = {
-        shelf_id: params.shelfId,
+        party_id: partyData.id,
         user_id: currentUser.id,
-        user_name: currentUser.nome,
-        check_type: checkType,
-        checked_items: checkedItems,
-        completed_at: new Date().toISOString(),
-        total_items: getTotalItems(),
-        checked_count: getCheckedCount(),
+        type: checkType,
+        notes: `Check completato per scaffale ${shelfId}. Elementi controllati: ${getCheckedCount()}/${getTotalItems()}`,
       };
 
-      console.log("[v0] Simulated check data:", checkData);
+      const { data: check, error: checkError } = await supabase
+        .from("checks")
+        .insert(checkData)
+        .select()
+        .single();
+
+      if (checkError) throw checkError;
 
       const checkTypeNames = {
-        load_truck: "Carico al Furgone",
-        unload_truck: "Scarico dal Furgone",
-        return_warehouse: "Scarico al Deposito",
+        deposito_scaffale: "Carico dal Deposito allo Scaffale",
+        scaffale_furgone: "Carico dallo Scaffale al Furgone",
+        furgone_scaffale: "Scarico dal Furgone allo Scaffale",
+        scaffale_deposito: "Scarico dallo Scaffale al Deposito",
       };
 
       const notificationData = {
-        title: `Check Completato - Scaffale ${params.shelfId}`,
+        title: `Check Completato - Scaffale ${shelfId}`,
         message: `${currentUser.nome} ha completato il check "${
           checkTypeNames[checkType]
-        }" per lo scaffale ${
-          params.shelfId
-        }. Elementi controllati: ${getCheckedCount()}/${getTotalItems()}`,
+        }" per la festa "${
+          partyData.nome
+        }" (scaffale ${shelfId}). Elementi controllati: ${getCheckedCount()}/${getTotalItems()}`,
         user_id: currentUser.id,
         is_read: false,
       };
 
-      const { data: notification, error: notificationError } = await supabase
+      const { error: notificationError } = await supabase
         .from("notifications")
-        .insert(notificationData)
-        .select()
-        .single();
+        .insert(notificationData);
 
-      if (notificationError) {
-        console.error("[v0] Error creating notification:", notificationError);
-        throw notificationError;
-      }
-
-      console.log("[v0] Notification created successfully:", notification);
+      if (notificationError) throw notificationError;
 
       alert(
         `Check ${checkTypeNames[checkType]} completato con successo!\nNotifica inviata all'amministratore.`
@@ -283,9 +321,13 @@ export default function CheckPage({ params }) {
 
   const getTotalItems = () => {
     let total = 0;
-    Object.values(materialCategories).forEach((category) => {
-      Object.values(category.categories).forEach((subcategory) => {
-        total += subcategory.items.length;
+    materialData.forEach((macro) => {
+      macro.categories.forEach((category) => {
+        if (category.items.length === 0) {
+          total += 1;
+        } else {
+          total += category.items.length;
+        }
       });
     });
     return total;
@@ -301,6 +343,59 @@ export default function CheckPage({ params }) {
     return total > 0 ? (checked / total) * 100 : 0;
   };
 
+  if (!shelfId) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Caricamento...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoadingParty) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">
+            Caricamento festa per scaffale {shelfId}...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (partyError) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
+          <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+            <Package className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            Scaffale {shelfId}
+          </h1>
+          <p className="text-muted-foreground mb-6">
+            Non è stata trovata nessuna festa assegnata a questo scaffale.
+            Contatta l'amministratore per verificare l'assegnazione.
+          </p>
+          <button
+            onClick={() => router.push("/")}
+            className="btn-primary w-full"
+          >
+            Torna alla Dashboard
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -314,11 +409,16 @@ export default function CheckPage({ params }) {
               <Package className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-foreground mb-2">
-              Accesso Scaffale {params.shelfId}
+              Accesso Scaffale {shelfId}
             </h1>
             <p className="text-muted-foreground">
               Inserisci le tue credenziali per accedere al check
             </p>
+            {partyData && (
+              <p className="text-sm text-primary mt-2 font-medium">
+                Festa: {partyData.nome}
+              </p>
+            )}
           </div>
 
           {loginError && (
@@ -391,37 +491,45 @@ export default function CheckPage({ params }) {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-2xl mx-auto"
           >
+            <button
+              onClick={() => router.push("/")}
+              className="flex items-center space-x-2 text-muted-foreground hover:text-foreground mb-6"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Torna alla Dashboard</span>
+            </button>
+
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <h1 className="text-2xl font-bold text-foreground mb-4">
-                Scaffale {params.shelfId}
+                Scaffale {shelfId}
               </h1>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center space-x-2">
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Festa:</span>
                   <span className="font-medium text-foreground">
-                    {shelfData.party}
+                    {partyData.nome}
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Data:</span>
                   <span className="font-medium text-foreground">
-                    {shelfData.date}
+                    {new Date(partyData.data).toLocaleDateString("it-IT")}
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <MapPin className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Luogo:</span>
                   <span className="font-medium text-foreground">
-                    {shelfData.location}
+                    {partyData.luogo}
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <User className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Responsabile:</span>
+                  <span className="text-muted-foreground">Animatore:</span>
                   <span className="font-medium text-foreground">
-                    {shelfData.responsible}
+                    {partyData.animatore?.nome || "Non assegnato"}
                   </span>
                 </div>
               </div>
@@ -434,24 +542,54 @@ export default function CheckPage({ params }) {
               <div className="grid gap-4">
                 {checkTypes.map((type) => {
                   const Icon = type.icon;
+                  const isAllowed = type.allowedRoles.includes(
+                    currentUser.ruolo
+                  );
+                  const isCompleted = existingChecks.some(
+                    (check) => check.type === type.id
+                  );
+
                   return (
                     <motion.button
                       key={type.id}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setCheckType(type.id)}
-                      className="bg-card p-6 rounded-xl border border-border text-left card-hover"
+                      whileHover={
+                        isAllowed && !isCompleted ? { scale: 1.02 } : {}
+                      }
+                      whileTap={
+                        isAllowed && !isCompleted ? { scale: 0.98 } : {}
+                      }
+                      onClick={() =>
+                        isAllowed && !isCompleted && setCheckType(type.id)
+                      }
+                      disabled={!isAllowed || isCompleted}
+                      className={`bg-card p-6 rounded-xl border border-border text-left ${
+                        isCompleted
+                          ? "opacity-50 cursor-not-allowed bg-green-50 border-green-200"
+                          : isAllowed
+                          ? "card-hover cursor-pointer"
+                          : "opacity-50 cursor-not-allowed"
+                      }`}
                     >
                       <div className="flex items-center space-x-4">
                         <div className="w-12 h-12 bg-surface rounded-lg flex items-center justify-center">
-                          <Icon className={`w-6 h-6 ${type.color}`} />
+                          <Icon
+                            className={`w-6 h-6 ${
+                              isCompleted ? "text-green-600" : type.color
+                            }`}
+                          />
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <h3 className="text-lg font-semibold text-foreground">
                             {type.name}
                           </h3>
                           <p className="text-muted-foreground text-sm">
-                            Utente: {currentUser.nome}
+                            {isCompleted
+                              ? "✓ Check già completato"
+                              : isAllowed
+                              ? `Utente: ${currentUser.nome}`
+                              : `Richiesto ruolo: ${type.allowedRoles.join(
+                                  ", "
+                                )}`}
                           </p>
                         </div>
                       </div>
@@ -462,6 +600,41 @@ export default function CheckPage({ params }) {
             </div>
           </motion.div>
         </div>
+      </div>
+    );
+  }
+
+  if (isCheckCompleted) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            Check Completato
+          </h1>
+          <p className="text-muted-foreground mb-6">
+            Questo tipo di check è già stato completato per la festa "
+            {partyData?.nome}".
+          </p>
+          <button
+            onClick={() => setCheckType("")}
+            className="btn-primary w-full mb-2"
+          >
+            Scegli Altro Check
+          </button>
+          <button
+            onClick={() => router.push("/")}
+            className="btn-secondary w-full"
+          >
+            Torna alla Dashboard
+          </button>
+        </motion.div>
       </div>
     );
   }
@@ -499,7 +672,7 @@ export default function CheckPage({ params }) {
           <div className="bg-card p-6 rounded-xl border border-border mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-foreground">
-                Progresso Check - Scaffale {params.shelfId}
+                Progresso Check - Scaffale {shelfId}
               </h2>
               <span className="text-sm text-muted-foreground">
                 {getCheckedCount()}/{getTotalItems()} completati
@@ -515,70 +688,99 @@ export default function CheckPage({ params }) {
           </div>
 
           <div className="space-y-6">
-            {Object.entries(materialCategories).map(
-              ([categoryKey, category]) => (
-                <motion.div
-                  key={categoryKey}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-card p-6 rounded-xl border border-border"
-                >
-                  <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center space-x-2">
-                    <span className="text-2xl">{category.icon}</span>
-                    <span>{category.name}</span>
-                  </h3>
+            {materialData.map((macro) => (
+              <motion.div
+                key={macro.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-card p-6 rounded-xl border border-border"
+              >
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center space-x-2">
+                  <Package className="w-5 h-5 text-primary" />
+                  <span>{macro.name}</span>
+                </h3>
 
-                  <div className="space-y-4">
-                    {Object.entries(category.categories).map(
-                      ([subcategoryKey, subcategory]) => (
-                        <div
-                          key={subcategoryKey}
-                          className="border border-border rounded-lg p-4"
-                        >
-                          <h4 className="font-medium text-foreground mb-3">
-                            {subcategory.name}
-                          </h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {subcategory.items.map((item, itemIndex) => {
-                              const itemKey = `${categoryKey}-${subcategoryKey}-${itemIndex}`;
-                              const isChecked = checkedItems[itemKey];
+                <div className="space-y-4">
+                  {macro.categories.map((category) => (
+                    <div
+                      key={category.id}
+                      className="border border-border rounded-lg p-4"
+                    >
+                      <h4 className="font-medium text-foreground mb-3">
+                        {category.name}
+                      </h4>
 
-                              return (
-                                <motion.button
-                                  key={itemIndex}
-                                  whileTap={{ scale: 0.98 }}
-                                  onClick={() =>
-                                    handleItemCheck(
-                                      categoryKey,
-                                      subcategoryKey,
-                                      itemIndex
-                                    )
-                                  }
-                                  className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
-                                    isChecked
-                                      ? "bg-green-50 border-green-200 text-green-800"
-                                      : "bg-surface border-border text-foreground hover:bg-card"
-                                  }`}
-                                >
-                                  {isChecked ? (
-                                    <CheckCircle className="w-5 h-5 text-green-600" />
-                                  ) : (
-                                    <Circle className="w-5 h-5 text-muted-foreground" />
-                                  )}
-                                  <span className="text-sm font-medium">
-                                    {item}
-                                  </span>
-                                </motion.button>
-                              );
-                            })}
-                          </div>
+                      {category.items.length === 0 ? (
+                        <div className="grid grid-cols-1">
+                          {(() => {
+                            const categoryKey = `${macro.id}-${category.id}`;
+                            const isChecked = checkedItems[categoryKey];
+
+                            return (
+                              <motion.button
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() =>
+                                  handleCategoryCheck(macro.id, category.id)
+                                }
+                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                  isChecked
+                                    ? "bg-green-50 border-green-200 text-green-800"
+                                    : "bg-surface border-border text-foreground hover:bg-card"
+                                }`}
+                              >
+                                {isChecked ? (
+                                  <CheckCircle className="w-5 h-5 text-green-600" />
+                                ) : (
+                                  <Circle className="w-5 h-5 text-muted-foreground" />
+                                )}
+                                <span className="text-sm font-medium">
+                                  Categoria completa
+                                </span>
+                              </motion.button>
+                            );
+                          })()}
                         </div>
-                      )
-                    )}
-                  </div>
-                </motion.div>
-              )
-            )}
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {category.items.map((item) => {
+                            const itemKey = `${macro.id}-${category.id}-${item.id}`;
+                            const isChecked = checkedItems[itemKey];
+
+                            return (
+                              <motion.button
+                                key={item.id}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() =>
+                                  handleItemCheck(
+                                    macro.id,
+                                    category.id,
+                                    item.id
+                                  )
+                                }
+                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                  isChecked
+                                    ? "bg-green-50 border-green-200 text-green-800"
+                                    : "bg-surface border-border text-foreground hover:bg-card"
+                                }`}
+                              >
+                                {isChecked ? (
+                                  <CheckCircle className="w-5 h-5 text-green-600" />
+                                ) : (
+                                  <Circle className="w-5 h-5 text-muted-foreground" />
+                                )}
+                                <span className="text-sm font-medium">
+                                  {item.name}
+                                </span>
+                              </motion.button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            ))}
           </div>
 
           <motion.div

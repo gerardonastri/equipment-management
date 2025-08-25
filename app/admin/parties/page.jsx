@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Calendar,
@@ -11,120 +11,350 @@ import {
   MapPin,
   User,
   Package,
+  Users,
+  Clock,
+  Truck,
+  Home,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
+import { createBrowserClient } from "@supabase/ssr";
 
 export default function PartiesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showMaterialModal, setShowMaterialModal] = useState(false);
+  const [selectedParty, setSelectedParty] = useState(null);
+  const [parties, setParties] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [macroCategories, setMacroCategories] = useState([]);
+  const [partyMaterials, setPartyMaterials] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [newParty, setNewParty] = useState({
-    name: "",
-    date: "",
-    location: "",
-    responsible: "",
+    nome: "",
+    data: "",
+    luogo: "",
+    animatore_id: "",
+    magazziniere_id: "",
+    stato: "iniziale",
+    note: "",
     shelves: [],
-    notes: "",
   });
+  const [selectedMaterials, setSelectedMaterials] = useState([]);
+  const [shelfInput, setShelfInput] = useState("");
 
-  // Mock parties data
-  const parties = [
-    {
-      id: 1,
-      name: "Matrimonio Villa Rosa",
-      date: "2024-01-15",
-      location: "Villa Rosa, Milano",
-      responsible: "Marco Rossi",
-      shelves: ["A-12", "B-05", "C-08"],
-      status: "active",
-      notes: "Matrimonio elegante con 150 invitati",
-    },
-    {
-      id: 2,
-      name: "Compleanno 18 anni Sara",
-      date: "2024-01-20",
-      location: "Sala Feste Aurora, Roma",
-      responsible: "Luca Bianchi",
-      shelves: ["D-03", "E-11"],
-      status: "pending",
-      notes: "Festa a tema anni 80",
-    },
-    {
-      id: 3,
-      name: "Evento Aziendale TechCorp",
-      date: "2024-01-25",
-      location: "Hotel Excelsior, Napoli",
-      responsible: "Sara Verdi",
-      shelves: ["F-07", "G-14", "H-02", "I-09"],
-      status: "completed",
-      notes: "Evento corporate con 300 partecipanti",
-    },
-  ];
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
 
-  const availableShelves = [
-    "A-01",
-    "A-02",
-    "B-01",
-    "B-02",
-    "C-01",
-    "C-02",
-    "D-01",
-    "D-02",
-  ];
-  const users = [
-    "Marco Rossi",
-    "Luca Bianchi",
-    "Sara Verdi",
-    "Anna Neri",
-    "Paolo Blu",
-  ];
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "active":
-        return "status-active";
-      case "pending":
-        return "status-pending";
-      case "completed":
-        return "status-completed";
-      default:
-        return "status-pending";
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      // Load parties with user details
+      const { data: partiesData } = await supabase
+        .from("parties")
+        .select(
+          `
+          *,
+          animatore:animatore_id(nome),
+          magazziniere:magazziniere_id(nome)
+        `
+        )
+        .order("created_at", { ascending: false });
+
+      // Load users
+      const { data: usersData } = await supabase
+        .from("users")
+        .select("*")
+        .order("nome");
+
+      // Load macro categories for material assignment
+      const { data: macroData } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .eq("type", "macro")
+        .is("parent_id", null)
+        .order("name");
+
+      setParties(partiesData || []);
+      setUsers(usersData || []);
+      setMacroCategories(macroData || []);
+    } catch (error) {
+      console.error("Error loading data:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getStatusText = (status) => {
-    switch (status) {
-      case "active":
-        return "Attiva";
-      case "pending":
-        return "In Preparazione";
-      case "completed":
-        return "Completata";
+  const loadPartyMaterials = async (partyId) => {
+    try {
+      const { data } = await supabase
+        .from("party_inventory")
+        .select(
+          `
+          inventory_items!inner(
+            id,
+            name,
+            type,
+            parent_id
+          )
+        `
+        )
+        .eq("party_id", partyId);
+
+      // Get full tree for each macro category
+      const materials = [];
+      for (const item of data || []) {
+        const tree = await getMaterialTree(item.inventory_items.id);
+        materials.push(tree);
+      }
+
+      setPartyMaterials(materials);
+    } catch (error) {
+      console.error("Error loading party materials:", error);
+    }
+  };
+
+  const getMaterialTree = async (macroId) => {
+    const { data } = await supabase
+      .from("inventory_items")
+      .select("*")
+      .or(`id.eq.${macroId},parent_id.eq.${macroId}`)
+      .order("type", { ascending: true })
+      .order("name");
+
+    const macro = data?.find((item) => item.id === macroId);
+    const categories =
+      data?.filter(
+        (item) => item.parent_id === macroId && item.type === "categoria"
+      ) || [];
+
+    const categoriesWithSubs = await Promise.all(
+      categories.map(async (cat) => {
+        const { data: subs } = await supabase
+          .from("inventory_items")
+          .select("*")
+          .eq("parent_id", cat.id)
+          .eq("type", "sotto")
+          .order("name");
+
+        return { ...cat, subcategories: subs || [] };
+      })
+    );
+
+    return { ...macro, categories: categoriesWithSubs };
+  };
+
+  const getStatusColor = (stato) => {
+    switch (stato) {
+      case "iniziale":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "caricato_furgone":
+        return "bg-blue-100 text-blue-800 border-blue-200";
+      case "scaricato_furgone":
+        return "bg-purple-100 text-purple-800 border-purple-200";
+      case "scaricato_scaffale":
+        return "bg-green-100 text-green-800 border-green-200";
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  };
+
+  const getStatusText = (stato) => {
+    switch (stato) {
+      case "iniziale":
+        return "Iniziale";
+      case "caricato_furgone":
+        return "Caricato nel Furgone";
+      case "scaricato_furgone":
+        return "Scaricato dal Furgone";
+      case "scaricato_scaffale":
+        return "Scaricato da Scaffale";
       default:
         return "Sconosciuto";
     }
   };
 
-  const handleAddParty = (e) => {
+  const getStatusIcon = (stato) => {
+    switch (stato) {
+      case "iniziale":
+        return <Clock className="w-4 h-4" />;
+      case "caricato_furgone":
+        return <Truck className="w-4 h-4" />;
+      case "scaricato_furgone":
+        return <Package className="w-4 h-4" />;
+      case "scaricato_scaffale":
+        return <Home className="w-4 h-4" />;
+      default:
+        return <Clock className="w-4 h-4" />;
+    }
+  };
+
+  const handleAddParty = async (e) => {
     e.preventDefault();
-    // Mock add party - in real app this would call API
-    console.log("Adding party:", newParty);
-    setShowAddForm(false);
-    setNewParty({
-      name: "",
-      date: "",
-      location: "",
-      responsible: "",
-      shelves: [],
-      notes: "",
-    });
+    try {
+      const partyData = {
+        ...newParty,
+        shelves: newParty.shelves.join(","),
+      };
+
+      const { data, error } = await supabase
+        .from("parties")
+        .insert([partyData])
+        .select();
+
+      if (error) throw error;
+
+      // Assign selected materials to the new party
+      if (selectedMaterials.length > 0 && data[0]) {
+        const materialAssignments = selectedMaterials.map((materialId) => ({
+          party_id: data[0].id,
+          inventory_id: materialId,
+        }));
+
+        const { error: materialError } = await supabase
+          .from("party_inventory")
+          .insert(materialAssignments);
+
+        if (materialError) throw materialError;
+      }
+
+      await loadData();
+      setShowAddForm(false);
+      setNewParty({
+        nome: "",
+        data: "",
+        luogo: "",
+        animatore_id: "",
+        magazziniere_id: "",
+        stato: "iniziale",
+        note: "",
+        shelves: [],
+      });
+      setSelectedMaterials([]);
+      setShelfInput("");
+    } catch (error) {
+      console.error("Error creating party:", error);
+      alert("Errore nella creazione della festa");
+    }
+  };
+
+  const handleAssignMaterial = async (macroId) => {
+    try {
+      const { error } = await supabase.from("party_inventory").insert([
+        {
+          party_id: selectedParty.id,
+          inventory_id: macroId,
+        },
+      ]);
+
+      if (error) throw error;
+
+      await loadPartyMaterials(selectedParty.id);
+    } catch (error) {
+      console.error("Error assigning material:", error);
+      alert("Errore nell'assegnazione del materiale");
+    }
+  };
+
+  const handleRemoveMaterial = async (macroId) => {
+    try {
+      const { error } = await supabase
+        .from("party_inventory")
+        .delete()
+        .eq("party_id", selectedParty.id)
+        .eq("inventory_id", macroId);
+
+      if (error) throw error;
+
+      await loadPartyMaterials(selectedParty.id);
+    } catch (error) {
+      console.error("Error removing material:", error);
+      alert("Errore nella rimozione del materiale");
+    }
+  };
+
+  const handleDeleteParty = async (partyId) => {
+    if (!confirm("Sei sicuro di voler eliminare questa festa?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("parties")
+        .delete()
+        .eq("id", partyId);
+
+      if (error) throw error;
+
+      await loadData();
+    } catch (error) {
+      console.error("Error deleting party:", error);
+      alert("Errore nell'eliminazione della festa");
+    }
+  };
+
+  const openMaterialModal = async (party) => {
+    setSelectedParty(party);
+    await loadPartyMaterials(party.id);
+    setShowMaterialModal(true);
+  };
+
+  const toggleMaterialSelection = (materialId) => {
+    setSelectedMaterials((prev) =>
+      prev.includes(materialId)
+        ? prev.filter((id) => id !== materialId)
+        : [...prev, materialId]
+    );
+  };
+
+  const addShelf = () => {
+    const shelfNumber = Number.parseInt(shelfInput);
+    if (shelfNumber && !newParty.shelves.includes(shelfNumber)) {
+      setNewParty((prev) => ({
+        ...prev,
+        shelves: [...prev.shelves, shelfNumber].sort((a, b) => a - b),
+      }));
+      setShelfInput("");
+    }
+  };
+
+  const removeShelf = (shelfToRemove) => {
+    setNewParty((prev) => ({
+      ...prev,
+      shelves: prev.shelves.filter((shelf) => shelf !== shelfToRemove),
+    }));
   };
 
   const filteredParties = parties.filter(
     (party) =>
-      party.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      party.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      party.responsible.toLowerCase().includes(searchTerm.toLowerCase())
+      party.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      party.luogo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (party.animatore?.nome || "")
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase()) ||
+      (party.magazziniere?.nome || "")
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase())
   );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <Navbar />
+        <main className="containerMod py-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Caricamento feste...</p>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-surface">
@@ -182,10 +412,15 @@ export default function PartiesPage() {
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-3">
                       <h3 className="text-xl font-semibold text-foreground">
-                        {party.name}
+                        {party.nome}
                       </h3>
-                      <span className={getStatusColor(party.status)}>
-                        {getStatusText(party.status)}
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center space-x-1 ${getStatusColor(
+                          party.stato
+                        )}`}
+                      >
+                        {getStatusIcon(party.stato)}
+                        <span>{getStatusText(party.stato)}</span>
                       </span>
                     </div>
 
@@ -194,46 +429,70 @@ export default function PartiesPage() {
                         <Calendar className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Data:</span>
                         <span className="font-medium text-foreground">
-                          {party.date}
+                          {new Date(party.data).toLocaleDateString("it-IT")}
                         </span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <MapPin className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Luogo:</span>
                         <span className="font-medium text-foreground">
-                          {party.location}
+                          {party.luogo}
                         </span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <User className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">
-                          Responsabile:
+                          Animatore:
                         </span>
                         <span className="font-medium text-foreground">
-                          {party.responsible}
+                          {party.animatore?.nome || "Non assegnato"}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Users className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">
+                          Magazziniere:
+                        </span>
+                        <span className="font-medium text-foreground">
+                          {party.magazziniere?.nome || "Non assegnato"}
                         </span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <Package className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Scaffali:</span>
                         <span className="font-medium text-foreground">
-                          {party.shelves.join(", ")}
+                          {party.shelves
+                            ? party.shelves
+                                .split(",")
+                                .map((s) => `#${s}`)
+                                .join(", ")
+                            : "Nessuno"}
                         </span>
                       </div>
                     </div>
 
-                    {party.notes && (
+                    {party.note && (
                       <p className="text-sm text-muted-foreground mt-3 italic">
-                        {party.notes}
+                        {party.note}
                       </p>
                     )}
                   </div>
 
                   <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => openMaterialModal(party)}
+                      className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors"
+                      title="Gestisci Materiale"
+                    >
+                      <Package className="w-4 h-4" />
+                    </button>
                     <button className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors">
                       <Edit className="w-4 h-4" />
                     </button>
-                    <button className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors">
+                    <button
+                      onClick={() => handleDeleteParty(party.id)}
+                      className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
+                    >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -266,11 +525,11 @@ export default function PartiesPage() {
                       </label>
                       <input
                         type="text"
-                        value={newParty.name}
+                        value={newParty.nome}
                         onChange={(e) =>
                           setNewParty((prev) => ({
                             ...prev,
-                            name: e.target.value,
+                            nome: e.target.value,
                           }))
                         }
                         className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
@@ -284,11 +543,11 @@ export default function PartiesPage() {
                       </label>
                       <input
                         type="date"
-                        value={newParty.date}
+                        value={newParty.data}
                         onChange={(e) =>
                           setNewParty((prev) => ({
                             ...prev,
-                            date: e.target.value,
+                            data: e.target.value,
                           }))
                         }
                         className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
@@ -303,11 +562,11 @@ export default function PartiesPage() {
                     </label>
                     <input
                       type="text"
-                      value={newParty.location}
+                      value={newParty.luogo}
                       onChange={(e) =>
                         setNewParty((prev) => ({
                           ...prev,
-                          location: e.target.value,
+                          luogo: e.target.value,
                         }))
                       }
                       className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
@@ -315,64 +574,91 @@ export default function PartiesPage() {
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Responsabile
-                    </label>
-                    <select
-                      value={newParty.responsible}
-                      onChange={(e) =>
-                        setNewParty((prev) => ({
-                          ...prev,
-                          responsible: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    >
-                      <option value="">Seleziona responsabile...</option>
-                      {users.map((user) => (
-                        <option key={user} value={user}>
-                          {user}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Animatore
+                      </label>
+                      <select
+                        value={newParty.animatore_id}
+                        onChange={(e) =>
+                          setNewParty((prev) => ({
+                            ...prev,
+                            animatore_id: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="">Seleziona animatore...</option>
+                        {users
+                          .filter(
+                            (user) =>
+                              user.ruolo === "animatore" ||
+                              user.ruolo === "amministratore"
+                          )
+                          .map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.nome}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Magazziniere
+                      </label>
+                      <select
+                        value={newParty.magazziniere_id}
+                        onChange={(e) =>
+                          setNewParty((prev) => ({
+                            ...prev,
+                            magazziniere_id: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="">Seleziona magazziniere...</option>
+                        {users
+                          .filter(
+                            (user) =>
+                              user.ruolo === "magazziniere" ||
+                              user.ruolo === "amministratore"
+                          )
+                          .map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.nome}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">
-                      Scaffali Assegnati
+                      Stato
                     </label>
-                    <div className="grid grid-cols-4 gap-2 max-h-32 overflow-y-auto border border-input rounded-lg p-3">
-                      {availableShelves.map((shelf) => (
-                        <label
-                          key={shelf}
-                          className="flex items-center space-x-2"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={newParty.shelves.includes(shelf)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setNewParty((prev) => ({
-                                  ...prev,
-                                  shelves: [...prev.shelves, shelf],
-                                }));
-                              } else {
-                                setNewParty((prev) => ({
-                                  ...prev,
-                                  shelves: prev.shelves.filter(
-                                    (s) => s !== shelf
-                                  ),
-                                }));
-                              }
-                            }}
-                            className="rounded border-input"
-                          />
-                          <span className="text-sm">{shelf}</span>
-                        </label>
-                      ))}
-                    </div>
+                    <select
+                      value={newParty.stato}
+                      onChange={(e) =>
+                        setNewParty((prev) => ({
+                          ...prev,
+                          stato: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="iniziale">Iniziale</option>
+                      <option value="caricato_furgone">
+                        Caricato nel Furgone
+                      </option>
+                      <option value="scaricato_furgone">
+                        Scaricato dal Furgone
+                      </option>
+                      <option value="scaricato_scaffale">
+                        Scaricato da Scaffale
+                      </option>
+                    </select>
                   </div>
 
                   <div>
@@ -380,11 +666,11 @@ export default function PartiesPage() {
                       Note
                     </label>
                     <textarea
-                      value={newParty.notes}
+                      value={newParty.note}
                       onChange={(e) =>
                         setNewParty((prev) => ({
                           ...prev,
-                          notes: e.target.value,
+                          note: e.target.value,
                         }))
                       }
                       className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
@@ -393,10 +679,107 @@ export default function PartiesPage() {
                     />
                   </div>
 
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-3">
+                      Materiale da Assegnare
+                    </label>
+                    <div className="border border-border rounded-lg p-4 max-h-48 overflow-y-auto">
+                      {macroCategories.length > 0 ? (
+                        <div className="space-y-2">
+                          {macroCategories.map((macro) => (
+                            <label
+                              key={macro.id}
+                              className="flex items-center space-x-3 cursor-pointer hover:bg-surface p-2 rounded-lg transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedMaterials.includes(macro.id)}
+                                onChange={() =>
+                                  toggleMaterialSelection(macro.id)
+                                }
+                                className="w-4 h-4 text-primary border-border rounded focus:ring-2 focus:ring-ring"
+                              />
+                              <span className="text-sm font-medium text-foreground">
+                                {macro.name}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          Nessuna macro-categoria disponibile. Crea prima del
+                          materiale nell'inventario.
+                        </p>
+                      )}
+                    </div>
+                    {selectedMaterials.length > 0 && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {selectedMaterials.length} macro-categorie selezionate
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Scaffali
+                    </label>
+                    <div className="space-y-3">
+                      <div className="flex space-x-2">
+                        <input
+                          type="number"
+                          min="1"
+                          value={shelfInput}
+                          onChange={(e) => setShelfInput(e.target.value)}
+                          onKeyPress={(e) =>
+                            e.key === "Enter" &&
+                            (e.preventDefault(), addShelf())
+                          }
+                          className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="Numero scaffale..."
+                        />
+                        <button
+                          type="button"
+                          onClick={addShelf}
+                          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                        >
+                          Aggiungi
+                        </button>
+                      </div>
+
+                      {newParty.shelves.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {newParty.shelves.map((shelf) => (
+                            <span
+                              key={shelf}
+                              className="inline-flex items-center space-x-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
+                            >
+                              <span>#{shelf}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeShelf(shelf)}
+                                className="hover:text-primary/70"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <p className="text-xs text-muted-foreground">
+                        Aggiungi uno o più scaffali per questa festa
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="flex space-x-3 pt-4">
                     <button
                       type="button"
-                      onClick={() => setShowAddForm(false)}
+                      onClick={() => {
+                        setShowAddForm(false);
+                        setSelectedMaterials([]);
+                        setShelfInput("");
+                      }}
                       className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
                     >
                       Annulla
@@ -406,6 +789,112 @@ export default function PartiesPage() {
                     </button>
                   </div>
                 </form>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* Material Assignment Modal */}
+          {showMaterialModal && selectedParty && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-card p-6 rounded-xl border border-border max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-semibold text-foreground">
+                    Materiale per: {selectedParty.nome}
+                  </h3>
+                  <button
+                    onClick={() => setShowMaterialModal(false)}
+                    className="p-2 hover:bg-surface rounded-lg transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Available Materials */}
+                  <div>
+                    <h4 className="text-lg font-medium text-foreground mb-4">
+                      Macro-Categorie Disponibili
+                    </h4>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {macroCategories.map((macro) => (
+                        <div
+                          key={macro.id}
+                          className="flex items-center justify-between p-3 border border-border rounded-lg"
+                        >
+                          <span className="font-medium">{macro.name}</span>
+                          <button
+                            onClick={() => handleAssignMaterial(macro.id)}
+                            className="btn-primary text-sm px-3 py-1"
+                            disabled={partyMaterials.some(
+                              (m) => m.id === macro.id
+                            )}
+                          >
+                            {partyMaterials.some((m) => m.id === macro.id)
+                              ? "Assegnato"
+                              : "Assegna"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Assigned Materials */}
+                  <div>
+                    <h4 className="text-lg font-medium text-foreground mb-4">
+                      Materiale Assegnato
+                    </h4>
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                      {partyMaterials.map((macro) => (
+                        <div
+                          key={macro.id}
+                          className="border border-border rounded-lg p-4"
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <h5 className="font-semibold text-primary">
+                              {macro.name}
+                            </h5>
+                            <button
+                              onClick={() => handleRemoveMaterial(macro.id)}
+                              className="text-danger hover:bg-red-50 p-1 rounded transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {macro.categories?.map((category) => (
+                            <div key={category.id} className="ml-4 mb-2">
+                              <div className="font-medium text-sm text-foreground">
+                                • {category.name}
+                              </div>
+                              {category.subcategories?.map((sub) => (
+                                <div
+                                  key={sub.id}
+                                  className="ml-4 text-sm text-muted-foreground"
+                                >
+                                  - {sub.name}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+
+                      {partyMaterials.length === 0 && (
+                        <p className="text-muted-foreground text-center py-8">
+                          Nessun materiale assegnato
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </motion.div>
             </motion.div>
           )}

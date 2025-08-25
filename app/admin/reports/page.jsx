@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   BarChart3,
@@ -12,75 +13,127 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
+import { createBrowserClient } from "@supabase/ssr";
 
 export default function ReportsPage() {
-  // Mock data for reports
-  const stats = [
-    {
-      title: "Check Completati Oggi",
-      value: "23",
-      change: "+15%",
-      trend: "up",
-      icon: CheckCircle,
-      color: "text-success",
-    },
-    {
-      title: "Feste Attive",
-      value: "12",
-      change: "+2",
-      trend: "up",
-      icon: Calendar,
-      color: "text-primary",
-    },
-    {
-      title: "Scaffali Utilizzati",
-      value: "8/15",
-      change: "53%",
-      trend: "stable",
-      icon: Package,
-      color: "text-secondary",
-    },
-    {
-      title: "Utenti Attivi",
-      value: "24",
-      change: "+3",
-      trend: "up",
-      icon: Users,
-      color: "text-chart",
-    },
-  ];
+  const [stats, setStats] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const recentActivity = [
-    {
-      type: "check_completed",
-      message: "Check completato per Scaffale A-12",
-      user: "Marco Rossi",
-      time: "2 min fa",
-      status: "success",
-    },
-    {
-      type: "party_created",
-      message: "Nuova festa creata: Matrimonio Villa Rosa",
-      user: "Admin",
-      time: "15 min fa",
-      status: "info",
-    },
-    {
-      type: "check_delayed",
-      message: "Check in ritardo per Scaffale B-05",
-      user: "Sara Verdi",
-      time: "1 ora fa",
-      status: "warning",
-    },
-    {
-      type: "material_added",
-      message: "Nuovo materiale aggiunto: Casse Audio JBL",
-      user: "Luca Bianchi",
-      time: "2 ore fa",
-      status: "info",
-    },
-  ];
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
 
+  useEffect(() => {
+    loadReportsData();
+  }, []);
+
+  const loadReportsData = async () => {
+    try {
+      // Get parties count and active parties
+      const { data: parties } = await supabase.from("parties").select("*");
+      const activeParties =
+        parties?.filter((p) => p.stato !== "scaricato_scaffale").length || 0;
+
+      // Get total users count
+      const { data: users } = await supabase.from("users").select("*");
+      const totalUsers = users?.length || 0;
+
+      // Get used shelves from parties
+      const usedShelves = new Set();
+      parties?.forEach((party) => {
+        if (party.shelf) {
+          party.shelf
+            .split(",")
+            .forEach((shelf) => usedShelves.add(shelf.trim()));
+        }
+      });
+      const totalShelves = 15; // Assuming max 15 shelves
+      const shelvesUsed = usedShelves.size;
+
+      // Get notifications count (unread)
+      const { data: notifications } = await supabase
+        .from("notifications")
+        .select("*")
+        .eq("is_read", false);
+      const unreadNotifications = notifications?.length || 0;
+
+      setStats([
+        {
+          title: "Notifiche Non Lette",
+          value: unreadNotifications.toString(),
+          change: "+15%",
+          trend: "up",
+          icon: CheckCircle,
+          color: "text-success",
+        },
+        {
+          title: "Feste Attive",
+          value: activeParties.toString(),
+          change: "+2",
+          trend: "up",
+          icon: Calendar,
+          color: "text-primary",
+        },
+        {
+          title: "Scaffali Utilizzati",
+          value: `${shelvesUsed}/${totalShelves}`,
+          change: `${Math.round((shelvesUsed / totalShelves) * 100)}%`,
+          trend: "stable",
+          icon: Package,
+          color: "text-secondary",
+        },
+        {
+          title: "Utenti Totali",
+          value: totalUsers.toString(),
+          change: "+3",
+          trend: "up",
+          icon: Users,
+          color: "text-chart",
+        },
+      ]);
+
+      const { data: recentNotifications } = await supabase
+        .from("notifications")
+        .select(
+          `
+          *,
+          users!inner(nome)
+        `
+        )
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      const activityData =
+        recentNotifications?.map((notification) => ({
+          type: "notification",
+          message: notification.title,
+          user: notification.users?.nome || "Sistema",
+          time: getTimeAgo(notification.created_at),
+          status: notification.is_read ? "info" : "warning",
+        })) || [];
+
+      setRecentActivity(activityData);
+    } catch (error) {
+      console.error("Error loading reports data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTimeAgo = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+
+    if (diffInMinutes < 1) return "Ora";
+    if (diffInMinutes < 60) return `${diffInMinutes} min fa`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} ore fa`;
+    return `${Math.floor(diffInMinutes / 1440)} giorni fa`;
+  };
+
+  // Mock weekly data (keeping this as requested for now)
   const weeklyData = [
     { day: "Lun", checks: 45, parties: 3 },
     { day: "Mar", checks: 52, parties: 4 },
@@ -93,6 +146,8 @@ export default function ReportsPage() {
 
   const getActivityIcon = (type) => {
     switch (type) {
+      case "notification":
+        return AlertTriangle;
       case "check_completed":
         return CheckCircle;
       case "party_created":
@@ -118,6 +173,22 @@ export default function ReportsPage() {
         return "text-muted-foreground";
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <Navbar />
+        <main className="containerMod py-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Caricamento report...</p>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-surface">
