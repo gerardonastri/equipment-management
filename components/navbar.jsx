@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   X,
+  History,
 } from "lucide-react";
 import { useAdmin } from "./admin-provider";
 import { useState } from "react";
@@ -23,12 +24,12 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { href: "/admin", label: "Dashboard", icon: Home },
     { href: "/inventory", label: "Inventario", icon: Package },
     { href: "/admin/parties", label: "Feste", icon: Calendar },
     { href: "/admin/users", label: "Utenti", icon: Users },
     { href: "/admin/reports", label: "Report", icon: BarChart3 },
     { href: "/admin/notifications", label: "Notifiche", icon: Bell },
+    { href: "/admin/checks-history", label: "Storico Check", icon: History },
   ];
 
   const handleLogout = () => {
@@ -50,7 +51,7 @@ export default function Navbar() {
       >
         <div className="containerMod">
           <div className="flex items-center justify-between h-16">
-            <Link href="/" className="flex items-center space-x-2">
+            <Link href="/admin" className="flex items-center space-x-2">
               <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
                 <Package className="w-5 h-5 text-white" />
               </div>

@@ -34,6 +34,7 @@ export default function CheckPage({ params }) {
   const [shelfId, setShelfId] = useState(null);
   const [existingChecks, setExistingChecks] = useState([]);
   const [isCheckCompleted, setIsCheckCompleted] = useState(false);
+
   useEffect(() => {
     const resolveParams = async () => {
       const resolvedParams = await params;
@@ -50,11 +51,16 @@ export default function CheckPage({ params }) {
         setIsLoadingParty(true);
         console.log("[v0] Loading party for shelf:", shelfId);
 
-        const { data: parties, error } = await supabase.from("parties").select(`
+        const { data: parties, error } = await supabase
+          .from("parties")
+          .select(
+            `
             *,
             animatore:animatore_id(nome, ruolo),
             magazziniere:magazziniere_id(nome, ruolo)
-          `);
+          `
+          )
+          .neq("stato", "scaricato_scaffale");
 
         if (error) throw error;
 
@@ -281,6 +287,23 @@ export default function CheckPage({ params }) {
 
       if (checkError) throw checkError;
 
+      if (checkType === "scaffale_deposito") {
+        const { error: partyUpdateError } = await supabase
+          .from("parties")
+          .update({ stato: "scaricato_scaffale" })
+          .eq("id", partyData.id);
+
+        if (partyUpdateError) {
+          console.error("[v0] Error updating party status:", partyUpdateError);
+          throw partyUpdateError;
+        }
+
+        console.log(
+          "[v0] Party status updated to 'scaricato_scaffale' for party:",
+          partyData.id
+        );
+      }
+
       const checkTypeNames = {
         deposito_scaffale: "Carico dal Deposito allo Scaffale",
         scaffale_furgone: "Carico dallo Scaffale al Furgone",
@@ -294,7 +317,11 @@ export default function CheckPage({ params }) {
           checkTypeNames[checkType]
         }" per la festa "${
           partyData.nome
-        }" (scaffale ${shelfId}). Elementi controllati: ${getCheckedCount()}/${getTotalItems()}`,
+        }" (scaffale ${shelfId}). Elementi controllati: ${getCheckedCount()}/${getTotalItems()}${
+          checkType === "scaffale_deposito"
+            ? ". Festa scaricata dal scaffale."
+            : ""
+        }`,
         user_id: currentUser.id,
         is_read: false,
       };
@@ -305,8 +332,30 @@ export default function CheckPage({ params }) {
 
       if (notificationError) throw notificationError;
 
+      const telegramMessage = `📦 <b>Nuovo Check Completato</b>
+
+👤 Utente: ${currentUser.nome}
+🔑 Ruolo: ${currentUser.ruolo}
+🎉 Festa: ${partyData.nome}
+📍 Scaffale: ${shelfId}
+✅ Tipo: ${checkTypeNames[checkType]}
+📊 Controllati: ${getCheckedCount()}/${getTotalItems()}`;
+
+      // chiama la tua API
+      await fetch("/api/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: telegramMessage }),
+      });
+
       alert(
-        `Check ${checkTypeNames[checkType]} completato con successo!\nNotifica inviata all'amministratore.`
+        `Check ${
+          checkTypeNames[checkType]
+        } completato con successo!\nNotifica inviata all'amministratore.${
+          checkType === "scaffale_deposito"
+            ? "\nLa festa è stata marcata come scaricata dal scaffale."
+            : ""
+        }`
       );
 
       setCheckedItems({});
@@ -321,14 +370,23 @@ export default function CheckPage({ params }) {
 
   const getTotalItems = () => {
     let total = 0;
+    if (!materialData || !Array.isArray(materialData)) return 0;
+
     materialData.forEach((macro) => {
-      macro.categories.forEach((category) => {
-        if (category.items.length === 0) {
-          total += 1;
-        } else {
-          total += category.items.length;
-        }
-      });
+      if (macro.categories && Array.isArray(macro.categories)) {
+        macro.categories.forEach((category) => {
+          if (category.items && Array.isArray(category.items)) {
+            if (category.items.length === 0) {
+              total += 1;
+            } else {
+              total += category.items.length;
+            }
+          } else {
+            // If items is not an array, count the category itself
+            total += 1;
+          }
+        });
+      }
     });
     return total;
   };
@@ -385,12 +443,6 @@ export default function CheckPage({ params }) {
             Non è stata trovata nessuna festa assegnata a questo scaffale.
             Contatta l'amministratore per verificare l'assegnazione.
           </p>
-          <button
-            onClick={() => router.push("/")}
-            className="btn-primary w-full"
-          >
-            Torna alla Dashboard
-          </button>
         </motion.div>
       </div>
     );
@@ -491,14 +543,6 @@ export default function CheckPage({ params }) {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-2xl mx-auto"
           >
-            <button
-              onClick={() => router.push("/")}
-              className="flex items-center space-x-2 text-muted-foreground hover:text-foreground mb-6"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Torna alla Dashboard</span>
-            </button>
-
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <h1 className="text-2xl font-bold text-foreground mb-4">
                 Scaffale {shelfId}
@@ -627,12 +671,6 @@ export default function CheckPage({ params }) {
             className="btn-primary w-full mb-2"
           >
             Scegli Altro Check
-          </button>
-          <button
-            onClick={() => router.push("/")}
-            className="btn-secondary w-full"
-          >
-            Torna alla Dashboard
           </button>
         </motion.div>
       </div>

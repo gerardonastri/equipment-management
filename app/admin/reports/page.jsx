@@ -40,11 +40,10 @@ export default function ReportsPage() {
       const { data: users } = await supabase.from("users").select("*");
       const totalUsers = users?.length || 0;
 
-      // Get used shelves from parties
       const usedShelves = new Set();
       parties?.forEach((party) => {
-        if (party.shelf) {
-          party.shelf
+        if (party.shelves && party.stato !== "scaricato_scaffale") {
+          party.shelves
             .split(",")
             .forEach((shelf) => usedShelves.add(shelf.trim()));
         }
