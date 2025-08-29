@@ -9,9 +9,7 @@ import {
   Edit,
   Trash2,
   MapPin,
-  User,
   Package,
-  Users,
   Clock,
   Truck,
   Home,
@@ -22,8 +20,10 @@ import { createBrowserClient } from "@supabase/ssr";
 export default function PartiesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false); // Added edit form state
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [selectedParty, setSelectedParty] = useState(null);
+  const [editingParty, setEditingParty] = useState(null); // Added editing party state
   const [parties, setParties] = useState([]);
   const [users, setUsers] = useState([]);
   const [macroCategories, setMacroCategories] = useState([]);
@@ -33,11 +33,11 @@ export default function PartiesPage() {
     nome: "",
     data: "",
     luogo: "",
-    animatore_id: "",
-    magazziniere_id: "",
     stato: "iniziale",
     note: "",
     shelves: [],
+    animatore_id: null,
+    magazziniere_id: null,
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [shelfInput, setShelfInput] = useState("");
@@ -54,7 +54,6 @@ export default function PartiesPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      // Load parties with user details
       const { data: partiesData } = await supabase
         .from("parties")
         .select(
@@ -153,6 +152,8 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "caricato_scaffale":
+        return "bg-red-100 text-red-800 border-red-200";
       case "caricato_furgone":
         return "bg-blue-100 text-blue-800 border-blue-200";
       case "scaricato_furgone":
@@ -196,18 +197,31 @@ export default function PartiesPage() {
 
   const handleAddParty = async (e) => {
     e.preventDefault();
+
+    if (newParty.shelves.length === 0) {
+      alert("Devi aggiungere almeno uno scaffale");
+      return;
+    }
+
     try {
       const partyData = {
         ...newParty,
         shelves: newParty.shelves.join(","),
       };
 
+      console.log("[v0] Creating party with data:", partyData); // Add debug logging
+
       const { data, error } = await supabase
         .from("parties")
         .insert([partyData])
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error("[v0] Supabase error:", error); // Add debug logging
+        throw error;
+      }
+
+      console.log("[v0] Party created successfully:", data); // Add debug logging
 
       // Assign selected materials to the new party
       if (selectedMaterials.length > 0 && data[0]) {
@@ -229,17 +243,53 @@ export default function PartiesPage() {
         nome: "",
         data: "",
         luogo: "",
-        animatore_id: "",
-        magazziniere_id: "",
         stato: "iniziale",
         note: "",
         shelves: [],
+        animatore_id: null,
+        magazziniere_id: null,
       });
       setSelectedMaterials([]);
       setShelfInput("");
     } catch (error) {
       console.error("Error creating party:", error);
       alert("Errore nella creazione della festa");
+    }
+  };
+
+  const handleEditParty = (party) => {
+    setEditingParty({
+      ...party,
+      shelves: party.shelves ? party.shelves.split(",").map(Number) : [],
+    });
+    setShowEditForm(true);
+  };
+
+  const handleUpdateParty = async (e) => {
+    e.preventDefault();
+    try {
+      const partyData = {
+        nome: editingParty.nome,
+        data: editingParty.data,
+        luogo: editingParty.luogo,
+        stato: editingParty.stato,
+        note: editingParty.note,
+        shelves: editingParty.shelves.join(","),
+      };
+
+      const { error } = await supabase
+        .from("parties")
+        .update(partyData)
+        .eq("id", editingParty.id);
+
+      if (error) throw error;
+
+      await loadData();
+      setShowEditForm(false);
+      setEditingParty(null);
+    } catch (error) {
+      console.error("Error updating party:", error);
+      alert("Errore nell'aggiornamento della festa");
     }
   };
 
@@ -424,7 +474,7 @@ export default function PartiesPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 text-sm">
                       <div className="flex items-center space-x-2">
                         <Calendar className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Data:</span>
@@ -440,24 +490,6 @@ export default function PartiesPage() {
                         </span>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <User className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          Animatore:
-                        </span>
-                        <span className="font-medium text-foreground">
-                          {party.animatore?.nome || "Non assegnato"}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Users className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          Magazziniere:
-                        </span>
-                        <span className="font-medium text-foreground">
-                          {party.magazziniere?.nome || "Non assegnato"}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
                         <Package className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Scaffali:</span>
                         <span className="font-medium text-foreground">
@@ -467,6 +499,22 @@ export default function PartiesPage() {
                                 .map((s) => `#${s}`)
                                 .join(", ")
                             : "Nessuno"}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-muted-foreground">
+                          Animatore:
+                        </span>
+                        <span className="font-medium text-foreground">
+                          {party.animatore?.nome || "Non assegnato"}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-muted-foreground">
+                          Magazziniere:
+                        </span>
+                        <span className="font-medium text-foreground">
+                          {party.magazziniere?.nome || "Non assegnato"}
                         </span>
                       </div>
                     </div>
@@ -486,7 +534,11 @@ export default function PartiesPage() {
                     >
                       <Package className="w-4 h-4" />
                     </button>
-                    <button className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors">
+                    <button
+                      onClick={() => handleEditParty(party)}
+                      className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors"
+                      title="Modifica Festa"
+                    >
                       <Edit className="w-4 h-4" />
                     </button>
                     <button
@@ -572,66 +624,6 @@ export default function PartiesPage() {
                       className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                       required
                     />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Animatore
-                      </label>
-                      <select
-                        value={newParty.animatore_id}
-                        onChange={(e) =>
-                          setNewParty((prev) => ({
-                            ...prev,
-                            animatore_id: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">Seleziona animatore...</option>
-                        {users
-                          .filter(
-                            (user) =>
-                              user.ruolo === "animatore" ||
-                              user.ruolo === "amministratore"
-                          )
-                          .map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.nome}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Magazziniere
-                      </label>
-                      <select
-                        value={newParty.magazziniere_id}
-                        onChange={(e) =>
-                          setNewParty((prev) => ({
-                            ...prev,
-                            magazziniere_id: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">Seleziona magazziniere...</option>
-                        {users
-                          .filter(
-                            (user) =>
-                              user.ruolo === "magazziniere" ||
-                              user.ruolo === "amministratore"
-                          )
-                          .map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.nome}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
                   </div>
 
                   <div>
@@ -786,6 +778,236 @@ export default function PartiesPage() {
                     </button>
                     <button type="submit" className="flex-1 btn-primary">
                       Crea Festa
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showEditForm && editingParty && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-card p-6 rounded-xl border border-border max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              >
+                <h3 className="text-xl font-semibold text-foreground mb-4">
+                  Modifica Festa: {editingParty.nome}
+                </h3>
+
+                <form onSubmit={handleUpdateParty} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Nome Festa
+                      </label>
+                      <input
+                        type="text"
+                        value={editingParty.nome}
+                        onChange={(e) =>
+                          setEditingParty((prev) => ({
+                            ...prev,
+                            nome: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Data
+                      </label>
+                      <input
+                        type="date"
+                        value={editingParty.data}
+                        onChange={(e) =>
+                          setEditingParty((prev) => ({
+                            ...prev,
+                            data: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Luogo
+                    </label>
+                    <input
+                      type="text"
+                      value={editingParty.luogo}
+                      onChange={(e) =>
+                        setEditingParty((prev) => ({
+                          ...prev,
+                          luogo: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Stato
+                    </label>
+                    <select
+                      value={editingParty.stato}
+                      onChange={(e) =>
+                        setEditingParty((prev) => ({
+                          ...prev,
+                          stato: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="iniziale">Iniziale</option>
+                      <option value="caricato_scaffale">
+                        Caricato nello Scaffale
+                      </option>
+                      <option value="caricato_furgone">
+                        Caricato nel Furgone
+                      </option>
+                      <option value="scaricato_furgone">
+                        Scaricato dal Furgone
+                      </option>
+                      <option value="scaricato_scaffale">
+                        Scaricato da Scaffale
+                      </option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Note
+                    </label>
+                    <textarea
+                      value={editingParty.note || ""}
+                      onChange={(e) =>
+                        setEditingParty((prev) => ({
+                          ...prev,
+                          note: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                      rows="3"
+                      placeholder="Note aggiuntive..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Scaffali
+                    </label>
+                    <div className="space-y-3">
+                      <div className="flex space-x-2">
+                        <input
+                          type="number"
+                          min="1"
+                          value={shelfInput}
+                          onChange={(e) => setShelfInput(e.target.value)}
+                          onKeyPress={(e) =>
+                            e.key === "Enter" &&
+                            (e.preventDefault(),
+                            (() => {
+                              const shelfNumber = Number.parseInt(shelfInput);
+                              if (
+                                shelfNumber &&
+                                !editingParty.shelves.includes(shelfNumber)
+                              ) {
+                                setEditingParty((prev) => ({
+                                  ...prev,
+                                  shelves: [...prev.shelves, shelfNumber].sort(
+                                    (a, b) => a - b
+                                  ),
+                                }));
+                                setShelfInput("");
+                              }
+                            })())
+                          }
+                          className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="Numero scaffale..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const shelfNumber = Number.parseInt(shelfInput);
+                            if (
+                              shelfNumber &&
+                              !editingParty.shelves.includes(shelfNumber)
+                            ) {
+                              setEditingParty((prev) => ({
+                                ...prev,
+                                shelves: [...prev.shelves, shelfNumber].sort(
+                                  (a, b) => a - b
+                                ),
+                              }));
+                              setShelfInput("");
+                            }
+                          }}
+                          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                        >
+                          Aggiungi
+                        </button>
+                      </div>
+
+                      {editingParty.shelves.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {editingParty.shelves.map((shelf) => (
+                            <span
+                              key={shelf}
+                              className="inline-flex items-center space-x-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
+                            >
+                              <span>#{shelf}</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingParty((prev) => ({
+                                    ...prev,
+                                    shelves: prev.shelves.filter(
+                                      (s) => s !== shelf
+                                    ),
+                                  }))
+                                }
+                                className="hover:text-primary/70"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <p className="text-xs text-muted-foreground">
+                        Modifica gli scaffali per questa festa
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex space-x-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowEditForm(false);
+                        setEditingParty(null);
+                        setShelfInput("");
+                      }}
+                      className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
+                    >
+                      Annulla
+                    </button>
+                    <button type="submit" className="flex-1 btn-primary">
+                      Aggiorna Festa
                     </button>
                   </div>
                 </form>

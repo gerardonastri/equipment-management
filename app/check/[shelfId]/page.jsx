@@ -272,6 +272,35 @@ export default function CheckPage({ params }) {
     setIsSubmitting(true);
 
     try {
+      const updatePartyData = {};
+
+      if (currentUser.ruolo === "animatore" && !partyData.animatore_id) {
+        updatePartyData.animatore_id = currentUser.id;
+      } else if (
+        currentUser.ruolo === "magazziniere" &&
+        !partyData.magazziniere_id
+      ) {
+        updatePartyData.magazziniere_id = currentUser.id;
+      }
+
+      // Update party with user assignment if needed
+      if (Object.keys(updatePartyData).length > 0) {
+        const { error: assignmentError } = await supabase
+          .from("parties")
+          .update(updatePartyData)
+          .eq("id", partyData.id);
+
+        if (assignmentError) {
+          console.error("[v0] Error assigning user to party:", assignmentError);
+          throw assignmentError;
+        }
+
+        console.log(
+          `[v0] User ${currentUser.nome} auto-assigned to party:`,
+          partyData.id
+        );
+      }
+
       const checkData = {
         party_id: partyData.id,
         user_id: currentUser.id,
@@ -287,10 +316,18 @@ export default function CheckPage({ params }) {
 
       if (checkError) throw checkError;
 
-      if (checkType === "scaffale_deposito") {
+      const statusMap = {
+        deposito_scaffale: "caricato_scaffale",
+        scaffale_furgone: "caricato_furgone",
+        furgone_scaffale: "scaricato_furgone",
+        scaffale_deposito: "scaricato_scaffale",
+      };
+
+      const newStatus = statusMap[checkType];
+      if (newStatus) {
         const { error: partyUpdateError } = await supabase
           .from("parties")
-          .update({ stato: "scaricato_scaffale" })
+          .update({ stato: newStatus })
           .eq("id", partyData.id);
 
         if (partyUpdateError) {
@@ -299,7 +336,7 @@ export default function CheckPage({ params }) {
         }
 
         console.log(
-          "[v0] Party status updated to 'scaricato_scaffale' for party:",
+          `[v0] Party status updated to '${newStatus}' for party:`,
           partyData.id
         );
       }
@@ -318,9 +355,7 @@ export default function CheckPage({ params }) {
         }" per la festa "${
           partyData.nome
         }" (scaffale ${shelfId}). Elementi controllati: ${getCheckedCount()}/${getTotalItems()}${
-          checkType === "scaffale_deposito"
-            ? ". Festa scaricata dal scaffale."
-            : ""
+          newStatus ? `. Stato festa aggiornato a: ${newStatus}` : ""
         }`,
         user_id: currentUser.id,
         is_read: false,
@@ -352,9 +387,7 @@ export default function CheckPage({ params }) {
         `Check ${
           checkTypeNames[checkType]
         } completato con successo!\nNotifica inviata all'amministratore.${
-          checkType === "scaffale_deposito"
-            ? "\nLa festa è stata marcata come scaricata dal scaffale."
-            : ""
+          newStatus ? `\nStato festa aggiornato a: ${newStatus}` : ""
         }`
       );
 
