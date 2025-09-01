@@ -2,44 +2,141 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Package, Calendar, Users, CheckCircle, Activity } from "lucide-react";
+import { Package, Calendar, Users, CheckCircle } from "lucide-react";
 import Navbar from "@/components/navbar";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase/client";
 
 export default function HomePage() {
-  const stats = [
+  const [stats, setStats] = useState([
     {
       title: "Feste Attive",
-      value: "12",
-      change: "+2 questa settimana",
+      value: "0",
+      change: "Caricamento...",
       icon: Calendar,
       color: "text-primary",
       bgColor: "bg-red-50",
     },
     {
       title: "Scaffali in Uso",
-      value: "8/15",
-      change: "53% utilizzo",
+      value: "0/15",
+      change: "0% utilizzo",
       icon: Package,
       color: "text-secondary",
       bgColor: "bg-orange-50",
     },
     {
       title: "Check Completati",
-      value: "156",
-      change: "+23 oggi",
+      value: "0",
+      change: "Caricamento...",
       icon: CheckCircle,
       color: "text-success",
       bgColor: "bg-green-50",
     },
     {
       title: "Utenti Attivi",
-      value: "24",
-      change: "8 online ora",
+      value: "0",
+      change: "Caricamento...",
       icon: Users,
       color: "text-chart",
       bgColor: "bg-purple-50",
     },
-  ];
+  ]);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        // Count total parties
+        const { count: partiesCount } = await supabase
+          .from("parties")
+          .select("*", { count: "exact", head: true });
+
+        // Count parties that are not "scaricato_scaffale" (active parties)
+        const { count: activePartiesCount } = await supabase
+          .from("parties")
+          .select("*", { count: "exact", head: true })
+          .neq("stato", "scaricato_scaffale");
+
+        // Count total users
+        const { count: usersCount } = await supabase
+          .from("users")
+          .select("*", { count: "exact", head: true });
+
+        // Count total checks
+        const { count: checksCount } = await supabase
+          .from("checks")
+          .select("*", { count: "exact", head: true });
+
+        // Count checks from today
+        const today = new Date().toISOString().split("T")[0];
+        const { count: todayChecksCount } = await supabase
+          .from("checks")
+          .select("*", { count: "exact", head: true })
+          .gte("created_at", today);
+
+        // Count unique shelves in use (from parties with shelves)
+        const { data: partiesWithShelves } = await supabase
+          .from("parties")
+          .select("shelves")
+          .not("shelves", "is", null)
+          .neq("stato", "scaricato_scaffale");
+
+        const uniqueShelves = new Set();
+        partiesWithShelves?.forEach((party) => {
+          if (party.shelves) {
+            const shelves = party.shelves.split(",");
+            shelves.forEach((shelf) => uniqueShelves.add(shelf.trim()));
+          }
+        });
+
+        const shelvesInUse = uniqueShelves.size;
+        const totalShelves = 15; // Assuming 15 total shelves
+        const shelfUsagePercent = Math.round(
+          (shelvesInUse / totalShelves) * 100
+        );
+
+        // Update stats with real data
+        setStats([
+          {
+            title: "Feste Attive",
+            value: (activePartiesCount || 0).toString(),
+            change: `${partiesCount || 0} totali`,
+            icon: Calendar,
+            color: "text-primary",
+            bgColor: "bg-red-50",
+          },
+          {
+            title: "Scaffali in Uso",
+            value: `${shelvesInUse}/${totalShelves}`,
+            change: `${shelfUsagePercent}% utilizzo`,
+            icon: Package,
+            color: "text-secondary",
+            bgColor: "bg-orange-50",
+          },
+          {
+            title: "Check Completati",
+            value: (checksCount || 0).toString(),
+            change: `+${todayChecksCount || 0} oggi`,
+            icon: CheckCircle,
+            color: "text-success",
+            bgColor: "bg-green-50",
+          },
+          {
+            title: "Utenti Attivi",
+            value: (usersCount || 0).toString(),
+            change: "Totali registrati",
+            icon: Users,
+            color: "text-chart",
+            bgColor: "bg-purple-50",
+          },
+        ]);
+      } catch (error) {
+        console.error("Error fetching stats:", error);
+      }
+    };
+
+    fetchStats();
+  }, []);
 
   const quickActions = [
     {
@@ -52,7 +149,7 @@ export default function HomePage() {
     {
       title: "Gestisci Feste",
       description: "Crea nuove feste e assegna scaffali",
-      href: "/admin/parties",
+      href: "/parties",
       icon: Calendar,
       gradient: "gradient-secondary",
     },
@@ -148,65 +245,6 @@ export default function HomePage() {
                   </motion.div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* Recent Activity */}
-          <div className="bg-card p-6 rounded-xl border border-border">
-            <div className="flex items-center space-x-2 mb-4">
-              <Activity className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold text-foreground">
-                Attività Recente
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {[
-                {
-                  action: "Check completato",
-                  item: "Scaffale A-12",
-                  user: "Marco Rossi",
-                  time: "2 min fa",
-                },
-                {
-                  action: "Festa creata",
-                  item: "Matrimonio Villa Rosa",
-                  user: "Admin",
-                  time: "15 min fa",
-                },
-                {
-                  action: "Materiale aggiunto",
-                  item: "Casse Audio JBL",
-                  user: "Luca Bianchi",
-                  time: "1 ora fa",
-                },
-                {
-                  action: "Check completato",
-                  item: "Scaffale B-05",
-                  user: "Sara Verdi",
-                  time: "2 ore fa",
-                },
-              ].map((activity, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between py-2 border-b border-border last:border-b-0"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {activity.action}:{" "}
-                        <span className="text-primary">{activity.item}</span>
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        da {activity.user}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    {activity.time}
-                  </span>
-                </div>
-              ))}
             </div>
           </div>
         </motion.div>

@@ -40,6 +40,10 @@ export default function ReportsPage() {
       const { data: users } = await supabase.from("users").select("*");
       const totalUsers = users?.length || 0;
 
+      // Get total checks count
+      const { data: checks } = await supabase.from("checks").select("*");
+      const totalChecks = checks?.length || 0;
+
       const usedShelves = new Set();
       parties?.forEach((party) => {
         if (party.shelves && party.stato !== "scaricato_scaffale") {
@@ -60,9 +64,9 @@ export default function ReportsPage() {
 
       setStats([
         {
-          title: "Notifiche Non Lette",
-          value: unreadNotifications.toString(),
-          change: "+15%",
+          title: "Check Completati",
+          value: totalChecks.toString(),
+          change: "+12%",
           trend: "up",
           icon: CheckCircle,
           color: "text-success",
@@ -102,16 +106,38 @@ export default function ReportsPage() {
         `
         )
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(5);
 
-      const activityData =
-        recentNotifications?.map((notification) => ({
+      const { data: recentChecks } = await supabase
+        .from("checks")
+        .select(
+          `
+          *,
+          users!inner(nome),
+          parties!inner(nome)
+        `
+        )
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      const activityData = [
+        ...(recentNotifications?.map((notification) => ({
           type: "notification",
           message: notification.title,
           user: notification.users?.nome || "Sistema",
           time: getTimeAgo(notification.created_at),
           status: notification.is_read ? "info" : "warning",
-        })) || [];
+        })) || []),
+        ...(recentChecks?.map((check) => ({
+          type: "check_completed",
+          message: `Check ${check.type} completato per ${check.parties?.nome}`,
+          user: check.users?.nome || "Utente",
+          time: getTimeAgo(check.created_at),
+          status: "success",
+        })) || []),
+      ]
+        .sort((a, b) => new Date(b.time) - new Date(a.time))
+        .slice(0, 10);
 
       setRecentActivity(activityData);
     } catch (error) {
@@ -371,7 +397,7 @@ export default function ReportsPage() {
               Metriche di Performance
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="text-center">
                 <div className="w-20 h-20 mx-auto mb-4 relative">
                   <svg
@@ -423,12 +449,25 @@ export default function ReportsPage() {
                       fill="none"
                       stroke="#f97316"
                       strokeWidth="2"
-                      strokeDasharray="92, 100"
+                      strokeDasharray={`${Math.round(
+                        ((stats
+                          .find((s) => s.title.includes("Scaffali"))
+                          ?.value.split("/")[0] || 0) /
+                          15) *
+                          100
+                      )}, 100`}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <span className="text-lg font-bold text-foreground">
-                      92%
+                      {Math.round(
+                        ((stats
+                          .find((s) => s.title.includes("Scaffali"))
+                          ?.value.split("/")[0] || 0) /
+                          15) *
+                          100
+                      )}
+                      %
                     </span>
                   </div>
                 </div>
@@ -436,7 +475,7 @@ export default function ReportsPage() {
                   Utilizzo Scaffali
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Scaffali utilizzati
+                  Scaffali attualmente utilizzati
                 </p>
               </div>
 
@@ -457,18 +496,20 @@ export default function ReportsPage() {
                       fill="none"
                       stroke="#16a34a"
                       strokeWidth="2"
-                      strokeDasharray="78, 100"
+                      strokeDasharray="85, 100"
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <span className="text-lg font-bold text-foreground">
-                      78%
+                      85%
                     </span>
                   </div>
                 </div>
-                <h3 className="font-semibold text-foreground">Soddisfazione</h3>
+                <h3 className="font-semibold text-foreground">
+                  Sistema Attivo
+                </h3>
                 <p className="text-sm text-muted-foreground">
-                  Feedback positivi
+                  Uptime del sistema
                 </p>
               </div>
             </div>
