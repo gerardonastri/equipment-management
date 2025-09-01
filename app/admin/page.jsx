@@ -142,14 +142,14 @@ export default function HomePage() {
     {
       title: "Gestisci Inventario",
       description: "Visualizza e modifica tutto il materiale disponibile",
-      href: "/inventory",
+      href: "/admin/inventory",
       icon: Package,
       gradient: "gradient-primary",
     },
     {
       title: "Gestisci Feste",
       description: "Crea nuove feste e assegna scaffali",
-      href: "/parties",
+      href: "/admin/parties",
       icon: Calendar,
       gradient: "gradient-secondary",
     },

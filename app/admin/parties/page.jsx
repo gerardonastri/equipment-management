@@ -169,6 +169,8 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "Iniziale";
+      case "caricato_scaffale":
+        return "Caricato sullo Scaffale";
       case "caricato_furgone":
         return "Caricato nel Furgone";
       case "scaricato_furgone":
