@@ -24,7 +24,7 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { href: "/inventory", label: "Inventario", icon: Package },
+    { href: "/admin/inventory", label: "Inventario", icon: Package },
     { href: "/admin/parties", label: "Feste", icon: Calendar },
     { href: "/admin/users", label: "Utenti", icon: Users },
     { href: "/admin/reports", label: "Report", icon: BarChart3 },
