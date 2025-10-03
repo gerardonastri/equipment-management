@@ -6,7 +6,8 @@ export async function POST(req) {
     const { message } = body;
 
     const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-    const TELEGRAM_CHAT_ID = "744188028";
+    // const TELEGRAM_CHAT_ID = "744188028"; //personale
+    const TELEGRAM_CHAT_ID = "-4970667122"; //gruppo
 
     const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
 
