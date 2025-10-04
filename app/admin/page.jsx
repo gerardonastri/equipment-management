@@ -46,68 +46,40 @@ export default function HomePage() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // Count total parties
-        const { count: partiesCount } = await supabase
-          .from("parties")
-          .select("*", { count: "exact", head: true });
+        const { data, error } = await supabase.rpc("get_admin_stats");
 
-        // Count parties that are not "scaricato_scaffale" (active parties)
-        const { count: activePartiesCount } = await supabase
-          .from("parties")
-          .select("*", { count: "exact", head: true })
-          .neq("stato", "scaricato_scaffale");
+        if (error) {
+          console.error("Errore RPC get_admin_stats:", error);
+          return;
+        }
 
-        // Count total users
-        const { count: usersCount } = await supabase
-          .from("users")
-          .select("*", { count: "exact", head: true });
+        // dati ritornati dalla funzione SQL
+        const {
+          total_parties,
+          active_parties,
+          users_count,
+          checks_count,
+          today_checks,
+          shelves_in_use,
+        } = data;
 
-        // Count total checks
-        const { count: checksCount } = await supabase
-          .from("checks")
-          .select("*", { count: "exact", head: true });
-
-        // Count checks from today
-        const today = new Date().toISOString().split("T")[0];
-        const { count: todayChecksCount } = await supabase
-          .from("checks")
-          .select("*", { count: "exact", head: true })
-          .gte("created_at", today);
-
-        // Count unique shelves in use (from parties with shelves)
-        const { data: partiesWithShelves } = await supabase
-          .from("parties")
-          .select("shelves")
-          .not("shelves", "is", null)
-          .neq("stato", "scaricato_scaffale");
-
-        const uniqueShelves = new Set();
-        partiesWithShelves?.forEach((party) => {
-          if (party.shelves) {
-            const shelves = party.shelves.split(",");
-            shelves.forEach((shelf) => uniqueShelves.add(shelf.trim()));
-          }
-        });
-
-        const shelvesInUse = uniqueShelves.size;
-        const totalShelves = 15; // Assuming 15 total shelves
+        const totalShelves = 15;
         const shelfUsagePercent = Math.round(
-          (shelvesInUse / totalShelves) * 100
+          (shelves_in_use / totalShelves) * 100
         );
 
-        // Update stats with real data
         setStats([
           {
             title: "Feste Attive",
-            value: (activePartiesCount || 0).toString(),
-            change: `${partiesCount || 0} totali`,
+            value: String(active_parties),
+            change: `${total_parties} totali`,
             icon: Calendar,
             color: "text-primary",
             bgColor: "bg-red-50",
           },
           {
             title: "Scaffali in Uso",
-            value: `${shelvesInUse}/${totalShelves}`,
+            value: `${shelves_in_use}/${totalShelves}`,
             change: `${shelfUsagePercent}% utilizzo`,
             icon: Package,
             color: "text-secondary",
@@ -115,15 +87,15 @@ export default function HomePage() {
           },
           {
             title: "Check Completati",
-            value: (checksCount || 0).toString(),
-            change: `+${todayChecksCount || 0} oggi`,
+            value: String(checks_count),
+            change: `+${today_checks} oggi`,
             icon: CheckCircle,
             color: "text-success",
             bgColor: "bg-green-50",
           },
           {
             title: "Utenti Attivi",
-            value: (usersCount || 0).toString(),
+            value: String(users_count),
             change: "Totali registrati",
             icon: Users,
             color: "text-chart",

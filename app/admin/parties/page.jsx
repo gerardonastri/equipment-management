@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { motion } from "framer-motion";
 import {
   Calendar,
@@ -9,151 +10,70 @@ import {
   Edit,
   Trash2,
   MapPin,
+  User,
   Package,
+  Users,
   Clock,
   Truck,
   Home,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
-import { createBrowserClient } from "@supabase/ssr";
+import {
+  getPartiesData,
+  getPartyMaterials,
+  createParty,
+  deleteParty,
+  assignMaterial,
+  removeMaterial,
+} from "./actions";
+
+const fetcher = () => getPartiesData();
 
 export default function PartiesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showEditForm, setShowEditForm] = useState(false); // Added edit form state
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [selectedParty, setSelectedParty] = useState(null);
-  const [editingParty, setEditingParty] = useState(null); // Added editing party state
-  const [parties, setParties] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [macroCategories, setMacroCategories] = useState([]);
   const [partyMaterials, setPartyMaterials] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingMaterials, setLoadingMaterials] = useState(false);
   const [newParty, setNewParty] = useState({
     nome: "",
     data: "",
     luogo: "",
+    animatore_id: "",
+    magazziniere_id: "",
     stato: "iniziale",
     note: "",
     shelves: [],
-    animatore_id: null,
-    magazziniere_id: null,
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [shelfInput, setShelfInput] = useState("");
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
+  const { data, error, isLoading, mutate } = useSWR("parties-data", fetcher, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+  });
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const parties = data?.parties || [];
+  const users = data?.users || [];
+  const macroCategories = data?.macroCategories || [];
 
-  const loadData = async () => {
+  const loadPartyMaterialsData = async (partyId) => {
+    setLoadingMaterials(true);
     try {
-      setLoading(true);
-      const { data: partiesData } = await supabase
-        .from("parties")
-        .select(
-          `
-          *,
-          animatore:animatore_id(nome),
-          magazziniere:magazziniere_id(nome)
-        `
-        )
-        .order("created_at", { ascending: false });
-
-      // Load users
-      const { data: usersData } = await supabase
-        .from("users")
-        .select("*")
-        .order("nome");
-
-      // Load macro categories for material assignment
-      const { data: macroData } = await supabase
-        .from("inventory_items")
-        .select("*")
-        .eq("type", "macro")
-        .is("parent_id", null)
-        .order("name");
-
-      setParties(partiesData || []);
-      setUsers(usersData || []);
-      setMacroCategories(macroData || []);
-    } catch (error) {
-      console.error("Error loading data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadPartyMaterials = async (partyId) => {
-    try {
-      const { data } = await supabase
-        .from("party_inventory")
-        .select(
-          `
-          inventory_items!inner(
-            id,
-            name,
-            type,
-            parent_id
-          )
-        `
-        )
-        .eq("party_id", partyId);
-
-      // Get full tree for each macro category
-      const materials = [];
-      for (const item of data || []) {
-        const tree = await getMaterialTree(item.inventory_items.id);
-        materials.push(tree);
-      }
-
+      const materials = await getPartyMaterials(partyId);
       setPartyMaterials(materials);
     } catch (error) {
       console.error("Error loading party materials:", error);
+    } finally {
+      setLoadingMaterials(false);
     }
-  };
-
-  const getMaterialTree = async (macroId) => {
-    const { data } = await supabase
-      .from("inventory_items")
-      .select("*")
-      .or(`id.eq.${macroId},parent_id.eq.${macroId}`)
-      .order("type", { ascending: true })
-      .order("name");
-
-    const macro = data?.find((item) => item.id === macroId);
-    const categories =
-      data?.filter(
-        (item) => item.parent_id === macroId && item.type === "categoria"
-      ) || [];
-
-    const categoriesWithSubs = await Promise.all(
-      categories.map(async (cat) => {
-        const { data: subs } = await supabase
-          .from("inventory_items")
-          .select("*")
-          .eq("parent_id", cat.id)
-          .eq("type", "sotto")
-          .order("name");
-
-        return { ...cat, subcategories: subs || [] };
-      })
-    );
-
-    return { ...macro, categories: categoriesWithSubs };
   };
 
   const getStatusColor = (stato) => {
     switch (stato) {
       case "iniziale":
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "caricato_scaffale":
-        return "bg-red-100 text-red-800 border-red-200";
       case "caricato_furgone":
         return "bg-blue-100 text-blue-800 border-blue-200";
       case "scaricato_furgone":
@@ -169,8 +89,6 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "Iniziale";
-      case "caricato_scaffale":
-        return "Caricato sullo Scaffale";
       case "caricato_furgone":
         return "Caricato nel Furgone";
       case "scaricato_furgone":
@@ -199,57 +117,23 @@ export default function PartiesPage() {
 
   const handleAddParty = async (e) => {
     e.preventDefault();
-
-    if (newParty.shelves.length === 0) {
-      alert("Devi aggiungere almeno uno scaffale");
-      return;
-    }
-
     try {
-      const partyData = {
+      await createParty({
         ...newParty,
-        shelves: newParty.shelves.join(","),
-      };
+        selectedMaterials,
+      });
 
-      console.log("[v0] Creating party with data:", partyData); // Add debug logging
-
-      const { data, error } = await supabase
-        .from("parties")
-        .insert([partyData])
-        .select();
-
-      if (error) {
-        console.error("[v0] Supabase error:", error); // Add debug logging
-        throw error;
-      }
-
-      console.log("[v0] Party created successfully:", data); // Add debug logging
-
-      // Assign selected materials to the new party
-      if (selectedMaterials.length > 0 && data[0]) {
-        const materialAssignments = selectedMaterials.map((materialId) => ({
-          party_id: data[0].id,
-          inventory_id: materialId,
-        }));
-
-        const { error: materialError } = await supabase
-          .from("party_inventory")
-          .insert(materialAssignments);
-
-        if (materialError) throw materialError;
-      }
-
-      await loadData();
+      mutate(); // Revalidate SWR cache
       setShowAddForm(false);
       setNewParty({
         nome: "",
         data: "",
         luogo: "",
+        animatore_id: "",
+        magazziniere_id: "",
         stato: "iniziale",
         note: "",
         shelves: [],
-        animatore_id: null,
-        magazziniere_id: null,
       });
       setSelectedMaterials([]);
       setShelfInput("");
@@ -259,54 +143,11 @@ export default function PartiesPage() {
     }
   };
 
-  const handleEditParty = (party) => {
-    setEditingParty({
-      ...party,
-      shelves: party.shelves ? party.shelves.split(",").map(Number) : [],
-    });
-    setShowEditForm(true);
-  };
-
-  const handleUpdateParty = async (e) => {
-    e.preventDefault();
-    try {
-      const partyData = {
-        nome: editingParty.nome,
-        data: editingParty.data,
-        luogo: editingParty.luogo,
-        stato: editingParty.stato,
-        note: editingParty.note,
-        shelves: editingParty.shelves.join(","),
-      };
-
-      const { error } = await supabase
-        .from("parties")
-        .update(partyData)
-        .eq("id", editingParty.id);
-
-      if (error) throw error;
-
-      await loadData();
-      setShowEditForm(false);
-      setEditingParty(null);
-    } catch (error) {
-      console.error("Error updating party:", error);
-      alert("Errore nell'aggiornamento della festa");
-    }
-  };
-
   const handleAssignMaterial = async (macroId) => {
     try {
-      const { error } = await supabase.from("party_inventory").insert([
-        {
-          party_id: selectedParty.id,
-          inventory_id: macroId,
-        },
-      ]);
-
-      if (error) throw error;
-
-      await loadPartyMaterials(selectedParty.id);
+      await assignMaterial(selectedParty.id, macroId);
+      await loadPartyMaterialsData(selectedParty.id);
+      mutate(); // Revalidate SWR cache
     } catch (error) {
       console.error("Error assigning material:", error);
       alert("Errore nell'assegnazione del materiale");
@@ -315,15 +156,9 @@ export default function PartiesPage() {
 
   const handleRemoveMaterial = async (macroId) => {
     try {
-      const { error } = await supabase
-        .from("party_inventory")
-        .delete()
-        .eq("party_id", selectedParty.id)
-        .eq("inventory_id", macroId);
-
-      if (error) throw error;
-
-      await loadPartyMaterials(selectedParty.id);
+      await removeMaterial(selectedParty.id, macroId);
+      await loadPartyMaterialsData(selectedParty.id);
+      mutate(); // Revalidate SWR cache
     } catch (error) {
       console.error("Error removing material:", error);
       alert("Errore nella rimozione del materiale");
@@ -334,14 +169,8 @@ export default function PartiesPage() {
     if (!confirm("Sei sicuro di voler eliminare questa festa?")) return;
 
     try {
-      const { error } = await supabase
-        .from("parties")
-        .delete()
-        .eq("id", partyId);
-
-      if (error) throw error;
-
-      await loadData();
+      await deleteParty(partyId);
+      mutate(); // Revalidate SWR cache
     } catch (error) {
       console.error("Error deleting party:", error);
       alert("Errore nell'eliminazione della festa");
@@ -350,8 +179,8 @@ export default function PartiesPage() {
 
   const openMaterialModal = async (party) => {
     setSelectedParty(party);
-    await loadPartyMaterials(party.id);
     setShowMaterialModal(true);
+    await loadPartyMaterialsData(party.id);
   };
 
   const toggleMaterialSelection = (materialId) => {
@@ -392,7 +221,7 @@ export default function PartiesPage() {
         .includes(searchTerm.toLowerCase())
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-surface">
         <Navbar />
@@ -402,6 +231,19 @@ export default function PartiesPage() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
               <p className="text-muted-foreground">Caricamento feste...</p>
             </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <Navbar />
+        <main className="containerMod py-8">
+          <div className="text-center text-danger">
+            Errore nel caricamento dei dati
           </div>
         </main>
       </div>
@@ -476,7 +318,7 @@ export default function PartiesPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 text-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                       <div className="flex items-center space-x-2">
                         <Calendar className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Data:</span>
@@ -492,6 +334,24 @@ export default function PartiesPage() {
                         </span>
                       </div>
                       <div className="flex items-center space-x-2">
+                        <User className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">
+                          Animatore:
+                        </span>
+                        <span className="font-medium text-foreground">
+                          {party.animatore?.nome || "Non assegnato"}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Users className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">
+                          Magazziniere:
+                        </span>
+                        <span className="font-medium text-foreground">
+                          {party.magazziniere?.nome || "Non assegnato"}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
                         <Package className="w-4 h-4 text-muted-foreground" />
                         <span className="text-muted-foreground">Scaffali:</span>
                         <span className="font-medium text-foreground">
@@ -501,22 +361,6 @@ export default function PartiesPage() {
                                 .map((s) => `#${s}`)
                                 .join(", ")
                             : "Nessuno"}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-muted-foreground">
-                          Animatore:
-                        </span>
-                        <span className="font-medium text-foreground">
-                          {party.animatore?.nome || "Non assegnato"}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-muted-foreground">
-                          Magazziniere:
-                        </span>
-                        <span className="font-medium text-foreground">
-                          {party.magazziniere?.nome || "Non assegnato"}
                         </span>
                       </div>
                     </div>
@@ -536,11 +380,7 @@ export default function PartiesPage() {
                     >
                       <Package className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => handleEditParty(party)}
-                      className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors"
-                      title="Modifica Festa"
-                    >
+                    <button className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors">
                       <Edit className="w-4 h-4" />
                     </button>
                     <button
@@ -626,6 +466,66 @@ export default function PartiesPage() {
                       className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                       required
                     />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Animatore
+                      </label>
+                      <select
+                        value={newParty.animatore_id}
+                        onChange={(e) =>
+                          setNewParty((prev) => ({
+                            ...prev,
+                            animatore_id: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="">Seleziona animatore...</option>
+                        {users
+                          .filter(
+                            (user) =>
+                              user.ruolo === "animatore" ||
+                              user.ruolo === "amministratore"
+                          )
+                          .map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.nome}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Magazziniere
+                      </label>
+                      <select
+                        value={newParty.magazziniere_id}
+                        onChange={(e) =>
+                          setNewParty((prev) => ({
+                            ...prev,
+                            magazziniere_id: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="">Seleziona magazziniere...</option>
+                        {users
+                          .filter(
+                            (user) =>
+                              user.ruolo === "magazziniere" ||
+                              user.ruolo === "amministratore"
+                          )
+                          .map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.nome}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div>
@@ -787,236 +687,6 @@ export default function PartiesPage() {
             </motion.div>
           )}
 
-          {showEditForm && editingParty && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="bg-card p-6 rounded-xl border border-border max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-              >
-                <h3 className="text-xl font-semibold text-foreground mb-4">
-                  Modifica Festa: {editingParty.nome}
-                </h3>
-
-                <form onSubmit={handleUpdateParty} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Nome Festa
-                      </label>
-                      <input
-                        type="text"
-                        value={editingParty.nome}
-                        onChange={(e) =>
-                          setEditingParty((prev) => ({
-                            ...prev,
-                            nome: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Data
-                      </label>
-                      <input
-                        type="date"
-                        value={editingParty.data}
-                        onChange={(e) =>
-                          setEditingParty((prev) => ({
-                            ...prev,
-                            data: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Luogo
-                    </label>
-                    <input
-                      type="text"
-                      value={editingParty.luogo}
-                      onChange={(e) =>
-                        setEditingParty((prev) => ({
-                          ...prev,
-                          luogo: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Stato
-                    </label>
-                    <select
-                      value={editingParty.stato}
-                      onChange={(e) =>
-                        setEditingParty((prev) => ({
-                          ...prev,
-                          stato: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="iniziale">Iniziale</option>
-                      <option value="caricato_scaffale">
-                        Caricato nello Scaffale
-                      </option>
-                      <option value="caricato_furgone">
-                        Caricato nel Furgone
-                      </option>
-                      <option value="scaricato_furgone">
-                        Scaricato dal Furgone
-                      </option>
-                      <option value="scaricato_scaffale">
-                        Scaricato da Scaffale
-                      </option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Note
-                    </label>
-                    <textarea
-                      value={editingParty.note || ""}
-                      onChange={(e) =>
-                        setEditingParty((prev) => ({
-                          ...prev,
-                          note: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      rows="3"
-                      placeholder="Note aggiuntive..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Scaffali
-                    </label>
-                    <div className="space-y-3">
-                      <div className="flex space-x-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={shelfInput}
-                          onChange={(e) => setShelfInput(e.target.value)}
-                          onKeyPress={(e) =>
-                            e.key === "Enter" &&
-                            (e.preventDefault(),
-                            (() => {
-                              const shelfNumber = Number.parseInt(shelfInput);
-                              if (
-                                shelfNumber &&
-                                !editingParty.shelves.includes(shelfNumber)
-                              ) {
-                                setEditingParty((prev) => ({
-                                  ...prev,
-                                  shelves: [...prev.shelves, shelfNumber].sort(
-                                    (a, b) => a - b
-                                  ),
-                                }));
-                                setShelfInput("");
-                              }
-                            })())
-                          }
-                          className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                          placeholder="Numero scaffale..."
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const shelfNumber = Number.parseInt(shelfInput);
-                            if (
-                              shelfNumber &&
-                              !editingParty.shelves.includes(shelfNumber)
-                            ) {
-                              setEditingParty((prev) => ({
-                                ...prev,
-                                shelves: [...prev.shelves, shelfNumber].sort(
-                                  (a, b) => a - b
-                                ),
-                              }));
-                              setShelfInput("");
-                            }
-                          }}
-                          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                        >
-                          Aggiungi
-                        </button>
-                      </div>
-
-                      {editingParty.shelves.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {editingParty.shelves.map((shelf) => (
-                            <span
-                              key={shelf}
-                              className="inline-flex items-center space-x-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
-                            >
-                              <span>#{shelf}</span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setEditingParty((prev) => ({
-                                    ...prev,
-                                    shelves: prev.shelves.filter(
-                                      (s) => s !== shelf
-                                    ),
-                                  }))
-                                }
-                                className="hover:text-primary/70"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <p className="text-xs text-muted-foreground">
-                        Modifica gli scaffali per questa festa
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowEditForm(false);
-                        setEditingParty(null);
-                        setShelfInput("");
-                      }}
-                      className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
-                    >
-                      Annulla
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      Aggiorna Festa
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            </motion.div>
-          )}
-
           {/* Material Assignment Modal */}
           {showMaterialModal && selectedParty && (
             <motion.div
@@ -1041,84 +711,90 @@ export default function PartiesPage() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Available Materials */}
-                  <div>
-                    <h4 className="text-lg font-medium text-foreground mb-4">
-                      Macro-Categorie Disponibili
-                    </h4>
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                      {macroCategories.map((macro) => (
-                        <div
-                          key={macro.id}
-                          className="flex items-center justify-between p-3 border border-border rounded-lg"
-                        >
-                          <span className="font-medium">{macro.name}</span>
-                          <button
-                            onClick={() => handleAssignMaterial(macro.id)}
-                            className="btn-primary text-sm px-3 py-1"
-                            disabled={partyMaterials.some(
-                              (m) => m.id === macro.id
-                            )}
-                          >
-                            {partyMaterials.some((m) => m.id === macro.id)
-                              ? "Assegnato"
-                              : "Assegna"}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                {loadingMaterials ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                   </div>
-
-                  {/* Assigned Materials */}
-                  <div>
-                    <h4 className="text-lg font-medium text-foreground mb-4">
-                      Materiale Assegnato
-                    </h4>
-                    <div className="space-y-4 max-h-96 overflow-y-auto">
-                      {partyMaterials.map((macro) => (
-                        <div
-                          key={macro.id}
-                          className="border border-border rounded-lg p-4"
-                        >
-                          <div className="flex items-center justify-between mb-3">
-                            <h5 className="font-semibold text-primary">
-                              {macro.name}
-                            </h5>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Available Materials */}
+                    <div>
+                      <h4 className="text-lg font-medium text-foreground mb-4">
+                        Macro-Categorie Disponibili
+                      </h4>
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {macroCategories.map((macro) => (
+                          <div
+                            key={macro.id}
+                            className="flex items-center justify-between p-3 border border-border rounded-lg"
+                          >
+                            <span className="font-medium">{macro.name}</span>
                             <button
-                              onClick={() => handleRemoveMaterial(macro.id)}
-                              className="text-danger hover:bg-red-50 p-1 rounded transition-colors"
+                              onClick={() => handleAssignMaterial(macro.id)}
+                              className="btn-primary text-sm px-3 py-1"
+                              disabled={partyMaterials.some(
+                                (m) => m.id === macro.id
+                              )}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {partyMaterials.some((m) => m.id === macro.id)
+                                ? "Assegnato"
+                                : "Assegna"}
                             </button>
                           </div>
+                        ))}
+                      </div>
+                    </div>
 
-                          {macro.categories?.map((category) => (
-                            <div key={category.id} className="ml-4 mb-2">
-                              <div className="font-medium text-sm text-foreground">
-                                • {category.name}
-                              </div>
-                              {category.subcategories?.map((sub) => (
-                                <div
-                                  key={sub.id}
-                                  className="ml-4 text-sm text-muted-foreground"
-                                >
-                                  - {sub.name}
-                                </div>
-                              ))}
+                    {/* Assigned Materials */}
+                    <div>
+                      <h4 className="text-lg font-medium text-foreground mb-4">
+                        Materiale Assegnato
+                      </h4>
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {partyMaterials.map((macro) => (
+                          <div
+                            key={macro.id}
+                            className="border border-border rounded-lg p-4"
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <h5 className="font-semibold text-primary">
+                                {macro.name}
+                              </h5>
+                              <button
+                                onClick={() => handleRemoveMaterial(macro.id)}
+                                className="text-danger hover:bg-red-50 p-1 rounded transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
-                          ))}
-                        </div>
-                      ))}
 
-                      {partyMaterials.length === 0 && (
-                        <p className="text-muted-foreground text-center py-8">
-                          Nessun materiale assegnato
-                        </p>
-                      )}
+                            {macro.categories?.map((category) => (
+                              <div key={category.id} className="ml-4 mb-2">
+                                <div className="font-medium text-sm text-foreground">
+                                  • {category.name}
+                                </div>
+                                {category.subcategories?.map((sub) => (
+                                  <div
+                                    key={sub.id}
+                                    className="ml-4 text-sm text-muted-foreground"
+                                  >
+                                    - {sub.name}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+
+                        {partyMaterials.length === 0 && (
+                          <p className="text-muted-foreground text-center py-8">
+                            Nessun materiale assegnato
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </motion.div>
             </motion.div>
           )}

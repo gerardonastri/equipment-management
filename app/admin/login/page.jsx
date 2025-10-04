@@ -1,45 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { useRouter } from "next/navigation";
 import { Shield, Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
-import { supabase } from "@/lib/supabase/client";
+import { loginAdmin } from "./actions";
 
 export default function AdminLoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const router = useRouter();
-
-  useEffect(() => {
-    checkExistingAuth();
-  }, []);
-
-  const checkExistingAuth = async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        // Check if user is admin
-        const { data: userData } = await supabase
-          .from("users")
-          .select("ruolo")
-          .eq("id", session.user.id)
-          .single();
-
-        if (userData && userData.ruolo === "amministratore") {
-          router.push("/admin");
-        }
-      }
-    } catch (error) {
-      console.error("[v0] Error checking existing auth:", error);
-    }
-  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -47,40 +16,16 @@ export default function AdminLoginPage() {
     setError("");
 
     try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword(
-        {
-          email,
-          password,
-        }
-      );
+      const formData = new FormData(e.target);
+      const result = await loginAdmin(formData);
 
-      if (authError) {
-        throw authError;
+      if (result?.error) {
+        setError(result.error);
       }
-
-      if (data.user) {
-        const { data: userData, error: userError } = await supabase
-          .from("users")
-          .select("*")
-          .eq("id", data.user.id)
-          .single();
-
-        if (userError) {
-          throw new Error("Utente non trovato nel sistema");
-        }
-
-        if (userData.ruolo !== "amministratore") {
-          await supabase.auth.signOut();
-          throw new Error(
-            "Accesso negato: non hai i permessi di amministratore"
-          );
-        }
-
-        router.push("/admin");
-      }
+      // Se non c'è errore, la Server Action farà il redirect
     } catch (error) {
       console.error("[v0] Login error:", error);
-      setError(error.message || "Errore durante il login");
+      setError("Errore durante il login");
     } finally {
       setLoading(false);
     }
@@ -127,8 +72,7 @@ export default function AdminLoginPage() {
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  name="email"
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   placeholder="admin@example.com"
                   required
@@ -144,8 +88,7 @@ export default function AdminLoginPage() {
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  name="password"
                   className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   placeholder="••••••••"
                   required
@@ -171,7 +114,7 @@ export default function AdminLoginPage() {
             >
               {loading ? (
                 <div className="flex items-center justify-center space-x-2">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   <span>Accesso in corso...</span>
                 </div>
               ) : (
