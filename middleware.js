@@ -51,7 +51,7 @@ export async function middleware(request) {
 
     if (error || !user || !user.id) {
       console.log("[v0] Middleware: No valid user found, redirecting to login");
-      // return NextResponse.redirect(new URL("/admin/login", request.url));
+      return NextResponse.redirect(new URL("/admin/login", request.url));
     }
 
     // Verifica ruolo amministratore
