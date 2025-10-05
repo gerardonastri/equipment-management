@@ -115,6 +115,32 @@ export async function createParty(formData) {
   return { success: true, data: data[0] };
 }
 
+export async function updateParty(partyId, formData) {
+  const supabase = await createServerClient();
+
+  const partyData = {
+    nome: formData.nome,
+    data: formData.data,
+    luogo: formData.luogo,
+    animatore_id: formData.animatore_id || null,
+    magazziniere_id: formData.magazziniere_id || null,
+    stato: formData.stato,
+    note: formData.note,
+    shelves: formData.shelves.join(","),
+  };
+
+  const { data, error } = await supabase
+    .from("parties")
+    .update(partyData)
+    .eq("id", partyId)
+    .select();
+
+  if (error) throw error;
+
+  revalidatePath("/admin/parties");
+  return { success: true, data: data[0] };
+}
+
 export async function deleteParty(partyId) {
   const supabase = await createServerClient();
 

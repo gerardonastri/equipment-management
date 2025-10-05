@@ -9,13 +9,26 @@ import {
   Package,
   Truck,
   MapPin,
+  Home,
   ArrowLeft,
   User,
   Calendar,
   Clock,
-  Home,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase/client";
+import useSWR from "swr";
+import {
+  getPartyDataForShelf,
+  authenticateUser,
+  submitCheck,
+} from "@/app/actions/check-actions";
+
+const fetcher = async (shelfId) => {
+  const result = await getPartyDataForShelf(shelfId);
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  return result;
+};
 
 export default function CheckPage({ params }) {
   const router = useRouter();
@@ -27,12 +40,7 @@ export default function CheckPage({ params }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
-  const [partyData, setPartyData] = useState(null);
-  const [isLoadingParty, setIsLoadingParty] = useState(true);
-  const [partyError, setPartyError] = useState("");
-  const [materialData, setMaterialData] = useState([]);
   const [shelfId, setShelfId] = useState(null);
-  const [existingChecks, setExistingChecks] = useState([]);
   const [isCheckCompleted, setIsCheckCompleted] = useState(false);
 
   useEffect(() => {
@@ -43,132 +51,23 @@ export default function CheckPage({ params }) {
     resolveParams();
   }, [params]);
 
-  useEffect(() => {
-    if (!shelfId) return;
+  const {
+    data,
+    error: partyError,
+    isLoading: isLoadingParty,
+    mutate,
+  } = useSWR(
+    shelfId ? `party-${shelfId}` : null,
+    () => (shelfId ? fetcher(shelfId) : null),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+    }
+  );
 
-    const loadPartyData = async () => {
-      try {
-        setIsLoadingParty(true);
-        console.log("[v0] Loading party for shelf:", shelfId);
-
-        const { data: parties, error } = await supabase
-          .from("parties")
-          .select(
-            `
-            *,
-            animatore:animatore_id(nome, ruolo),
-            magazziniere:magazziniere_id(nome, ruolo)
-          `
-          )
-          .neq("stato", "scaricato_scaffale");
-
-        if (error) throw error;
-
-        console.log("[v0] All parties loaded:", parties);
-
-        const matchingParties =
-          parties?.filter((party) => {
-            if (!party.shelves) return false;
-            const shelvesList = party.shelves.split(",").map((s) => s.trim());
-            return shelvesList.includes(shelfId);
-          }) || [];
-
-        console.log(
-          "[v0] Matching parties for shelf",
-          shelfId,
-          ":",
-          matchingParties
-        );
-
-        if (matchingParties.length === 0) {
-          setPartyError("Nessuna festa trovata per questo scaffale");
-          return;
-        }
-
-        const party = matchingParties[0];
-        setPartyData(party);
-        console.log("[v0] Selected party:", party);
-
-        const { data: checks, error: checksError } = await supabase
-          .from("checks")
-          .select("*")
-          .eq("party_id", party.id);
-
-        if (checksError) throw checksError;
-        setExistingChecks(checks || []);
-
-        const { data: partyMaterial, error: materialError } = await supabase
-          .from("party_inventory")
-          .select(
-            `
-            inventory_items!inner(
-              id,
-              name,
-              type,
-              parent_id
-            )
-          `
-          )
-          .eq("party_id", party.id);
-
-        if (materialError) throw materialError;
-
-        console.log("[v0] Party material loaded:", partyMaterial);
-
-        const macroCategories = partyMaterial
-          .filter((item) => item.inventory_items.type === "macro")
-          .map((item) => item.inventory_items);
-
-        console.log("[v0] Macro categories:", macroCategories);
-
-        const materialHierarchy = [];
-
-        for (const macro of macroCategories) {
-          const { data: categories, error: catError } = await supabase
-            .from("inventory_items")
-            .select("*")
-            .eq("parent_id", macro.id)
-            .eq("type", "categoria");
-
-          if (catError) throw catError;
-
-          const macroData = {
-            id: macro.id,
-            name: macro.name,
-            categories: [],
-          };
-
-          for (const category of categories || []) {
-            const { data: subcategories, error: subError } = await supabase
-              .from("inventory_items")
-              .select("*")
-              .eq("parent_id", category.id)
-              .eq("type", "sotto");
-
-            if (subError) throw subError;
-
-            macroData.categories.push({
-              id: category.id,
-              name: category.name,
-              items: subcategories || [],
-            });
-          }
-
-          materialHierarchy.push(macroData);
-        }
-
-        console.log("[v0] Final material hierarchy:", materialHierarchy);
-        setMaterialData(materialHierarchy);
-      } catch (error) {
-        console.error("[v0] Error loading party data:", error);
-        setPartyError("Errore nel caricamento dei dati della festa");
-      } finally {
-        setIsLoadingParty(false);
-      }
-    };
-
-    loadPartyData();
-  }, [shelfId]);
+  const partyData = data?.party;
+  const existingChecks = data?.checks || [];
+  const materialData = data?.materialHierarchy || [];
 
   useEffect(() => {
     if (checkType && existingChecks.length > 0) {
@@ -225,21 +124,14 @@ export default function CheckPage({ params }) {
     setLoginError("");
 
     try {
-      const { data: users, error } = await supabase
-        .from("users")
-        .select("*")
-        .eq("nome", loginData.name)
-        .eq("codice_sicurezza", loginData.code)
-        .limit(1);
+      const result = await authenticateUser(loginData.name, loginData.code);
 
-      if (error) throw error;
-
-      if (!users || users.length === 0) {
-        setLoginError("Nome o codice di sicurezza non validi");
+      if (result.error) {
+        setLoginError(result.error);
         return;
       }
 
-      const user = users[0];
+      const user = result.user;
       sessionStorage.setItem("currentUser", JSON.stringify(user));
       setCurrentUser(user);
       setIsAuthenticated(true);
@@ -269,136 +161,39 @@ export default function CheckPage({ params }) {
   };
 
   const handleSubmitCheck = async () => {
+    if (!partyData || !currentUser || !shelfId) return;
+
     setIsSubmitting(true);
 
     try {
-      const updatePartyData = {};
-
-      if (currentUser.ruolo === "animatore" && !partyData.animatore_id) {
-        updatePartyData.animatore_id = currentUser.id;
-      } else if (
-        currentUser.ruolo === "magazziniere" &&
-        !partyData.magazziniere_id
-      ) {
-        updatePartyData.magazziniere_id = currentUser.id;
-      }
-
-      // Update party with user assignment if needed
-      if (Object.keys(updatePartyData).length > 0) {
-        const { error: assignmentError } = await supabase
-          .from("parties")
-          .update(updatePartyData)
-          .eq("id", partyData.id);
-
-        if (assignmentError) {
-          console.error("[v0] Error assigning user to party:", assignmentError);
-          throw assignmentError;
-        }
-
-        console.log(
-          `[v0] User ${currentUser.nome} auto-assigned to party:`,
-          partyData.id
-        );
-      }
-
-      const checkData = {
-        party_id: partyData.id,
-        user_id: currentUser.id,
-        type: checkType,
-        notes: `Check completato per scaffale ${shelfId}. Elementi controllati: ${getCheckedCount()}/${getTotalItems()}`,
-      };
-
-      const { data: check, error: checkError } = await supabase
-        .from("checks")
-        .insert(checkData)
-        .select()
-        .single();
-
-      if (checkError) throw checkError;
-
-      const statusMap = {
-        deposito_scaffale: "caricato_scaffale",
-        scaffale_furgone: "caricato_furgone",
-        furgone_scaffale: "scaricato_furgone",
-        scaffale_deposito: "scaricato_scaffale",
-      };
-
-      const newStatus = statusMap[checkType];
-      if (newStatus) {
-        const { error: partyUpdateError } = await supabase
-          .from("parties")
-          .update({ stato: newStatus })
-          .eq("id", partyData.id);
-
-        if (partyUpdateError) {
-          console.error("[v0] Error updating party status:", partyUpdateError);
-          throw partyUpdateError;
-        }
-
-        console.log(
-          `[v0] Party status updated to '${newStatus}' for party:`,
-          partyData.id
-        );
-      }
-
-      const checkTypeNames = {
-        deposito_scaffale: "Carico dal Deposito allo Scaffale",
-        scaffale_furgone: "Carico dallo Scaffale al Furgone",
-        furgone_scaffale: "Scarico dal Furgone allo Scaffale",
-        scaffale_deposito: "Scarico dallo Scaffale al Deposito",
-      };
-
-      const notificationData = {
-        title: `Check Completato - Scaffale ${shelfId}`,
-        message: `${currentUser.nome} ha completato il check "${
-          checkTypeNames[checkType]
-        }" per la festa "${
-          partyData.nome
-        }" (scaffale ${shelfId}). Elementi controllati: ${getCheckedCount()}/${getTotalItems()}${
-          newStatus ? `. Stato festa aggiornato a: ${newStatus}` : ""
-        }`,
-        user_id: currentUser.id,
-        is_read: false,
-      };
-
-      const { error: notificationError } = await supabase
-        .from("notifications")
-        .insert(notificationData);
-
-      if (notificationError) throw notificationError;
-
-      const telegramMessage = `📦 <b>Nuovo Check Completato</b>
-
-👤 Utente: ${currentUser.nome}
-🔑 Ruolo: ${currentUser.ruolo}
-🎉 Festa: ${partyData.nome}
-📍 Scaffale: ${shelfId}
-✅ Tipo: ${checkTypeNames[checkType]}
-📊 Controllati: ${getCheckedCount()}/${getTotalItems()}`;
-
-      // chiama la tua API
-      await fetch("/api/telegram", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: telegramMessage }),
-      });
-
-      alert(
-        `Check ${
-          checkTypeNames[checkType]
-        } completato con successo!\nNotifica inviata all'amministratore.${
-          newStatus ? `\nStato festa aggiornato a: ${newStatus}` : ""
-        }`
+      const result = await submitCheck(
+        partyData.id,
+        currentUser.id,
+        currentUser.ruolo,
+        checkType,
+        shelfId,
+        getCheckedCount(),
+        getTotalItems(),
+        currentUser.nome,
+        partyData.nome
       );
+
+      if (result.error) {
+        alert(`Errore: ${result.error}`);
+        return;
+      }
+
+      alert(result.message);
 
       setCheckedItems({});
       setCheckType("");
+      mutate();
     } catch (error) {
       console.error("[v0] Error submitting check:", error);
       alert("Errore durante l'invio del check. Riprova.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsSubmitting(false);
   };
 
   const getTotalItems = () => {
@@ -415,7 +210,6 @@ export default function CheckPage({ params }) {
               total += category.items.length;
             }
           } else {
-            // If items is not an array, count the category itself
             total += 1;
           }
         });
@@ -476,6 +270,12 @@ export default function CheckPage({ params }) {
             Non è stata trovata nessuna festa assegnata a questo scaffale.
             Contatta l'amministratore per verificare l'assegnazione.
           </p>
+          <button
+            onClick={() => router.push("/")}
+            className="btn-primary w-full"
+          >
+            Torna alla Dashboard
+          </button>
         </motion.div>
       </div>
     );
