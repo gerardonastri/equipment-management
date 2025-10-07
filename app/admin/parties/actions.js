@@ -38,40 +38,77 @@ export async function getPartiesData() {
 export async function getPartyMaterials(partyId) {
   const supabase = await createServerClient();
 
-  const { data, error } = await supabase.rpc("get_party_materials_tree", {
-    p_party_id: partyId,
-  });
+  // Get all macro categories assigned to this party
+  const { data: partyMacros, error: macroError } = await supabase
+    .from("party_inventory")
+    .select("inventory_id")
+    .eq("party_id", partyId);
 
-  if (error) {
-    console.error("Error loading party materials:", error);
+  if (macroError) {
+    console.error("[v0] Error loading party macros:", macroError);
     return [];
   }
 
-  // Group the flat results into hierarchical structure
-  const macros = new Map();
-
-  for (const item of data || []) {
-    if (item.type === "macro") {
-      if (!macros.has(item.id)) {
-        macros.set(item.id, { ...item, categories: [] });
-      }
-    } else if (item.type === "categoria") {
-      const macro = macros.get(item.parent_id);
-      if (macro) {
-        const category = { ...item, subcategories: [] };
-        macro.categories.push(category);
-      }
-    } else if (item.type === "sotto") {
-      for (const macro of macros.values()) {
-        const category = macro.categories.find((c) => c.id === item.parent_id);
-        if (category) {
-          category.subcategories.push(item);
-        }
-      }
-    }
+  if (!partyMacros || partyMacros.length === 0) {
+    return [];
   }
 
-  return Array.from(macros.values());
+  const macroIds = partyMacros.map((m) => m.inventory_id);
+
+  // Get all macro categories details
+  const { data: macros, error: macrosError } = await supabase
+    .from("inventory_items")
+    .select("*")
+    .in("id", macroIds)
+    .eq("type", "macro");
+
+  if (macrosError) {
+    console.error("[v0] Error loading macros:", macrosError);
+    return [];
+  }
+
+  // For each macro, get its categories and subcategories
+  const result = [];
+  for (const macro of macros || []) {
+    // Get categories for this macro
+    const { data: categories, error: catError } = await supabase
+      .from("inventory_items")
+      .select("*")
+      .eq("parent_id", macro.id)
+      .eq("type", "categoria");
+
+    if (catError) {
+      console.error("[v0] Error loading categories:", catError);
+      continue;
+    }
+
+    const categoriesWithSubs = [];
+    for (const category of categories || []) {
+      // Get subcategories for this category
+      const { data: subcategories, error: subError } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .eq("parent_id", category.id)
+        .eq("type", "sotto");
+
+      if (subError) {
+        console.error("[v0] Error loading subcategories:", subError);
+        continue;
+      }
+
+      categoriesWithSubs.push({
+        ...category,
+        subcategories: subcategories || [],
+      });
+    }
+
+    result.push({
+      ...macro,
+      categories: categoriesWithSubs,
+    });
+  }
+
+  return result;
 }
 
 export async function createParty(formData) {

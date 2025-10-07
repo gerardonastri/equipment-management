@@ -66,6 +66,7 @@ export default function PartiesPage() {
     try {
       const materials = await getPartyMaterials(partyId);
       setPartyMaterials(materials);
+      console.log(materials, partyId);
     } catch (error) {
       console.error("Error loading party materials:", error);
     } finally {
