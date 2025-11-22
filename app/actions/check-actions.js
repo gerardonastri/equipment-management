@@ -259,7 +259,9 @@ export async function submitCheck(
 
     try {
       const siteUrl =
-        process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+        process.env.NEXT_PUBLIC_SITE_URL ||
+        process.env.SITE_URL ||
+        "http://movida-manager.vercel.app";
       await fetch(`${siteUrl}/api/telegram`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

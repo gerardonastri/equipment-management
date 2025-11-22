@@ -32,6 +32,12 @@ const fetcher = () => getPartiesData();
 
 export default function PartiesPage() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState([
+    "iniziale",
+    "caricato_furgone",
+    "scaricato_furgone",
+    "scaricato_scaffale",
+  ]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editParty, setEditParty] = useState(null);
@@ -66,7 +72,6 @@ export default function PartiesPage() {
     try {
       const materials = await getPartyMaterials(partyId);
       setPartyMaterials(materials);
-      console.log(materials, partyId);
     } catch (error) {
       console.error("Error loading party materials:", error);
     } finally {
@@ -78,8 +83,6 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "caricato_scaffale":
-        return "bg-orange-100 text-orange-800 border-orange-200";
       case "caricato_furgone":
         return "bg-blue-100 text-blue-800 border-blue-200";
       case "scaricato_furgone":
@@ -95,8 +98,6 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "Iniziale";
-      case "caricato_scaffale":
-        return "Caricato nello Scaffale";
       case "caricato_furgone":
         return "Caricato nel Furgone";
       case "scaricato_furgone":
@@ -258,8 +259,8 @@ export default function PartiesPage() {
     }));
   };
 
-  const filteredParties = parties.filter(
-    (party) =>
+  const filteredParties = parties.filter((party) => {
+    const matchesSearch =
       party.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       party.luogo.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (party.animatore?.nome || "")
@@ -267,8 +268,20 @@ export default function PartiesPage() {
         .includes(searchTerm.toLowerCase()) ||
       (party.magazziniere?.nome || "")
         .toLowerCase()
-        .includes(searchTerm.toLowerCase())
-  );
+        .includes(searchTerm.toLowerCase());
+
+    const matchesStatus = selectedStatuses.includes(party.stato);
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const toggleStatusFilter = (status) => {
+    setSelectedStatuses((prev) =>
+      prev.includes(status)
+        ? prev.filter((s) => s !== status)
+        : [...prev, status]
+    );
+  };
 
   if (isLoading) {
     return (
@@ -328,8 +341,9 @@ export default function PartiesPage() {
             </button>
           </div>
 
-          {/* Search */}
-          <div className="bg-card p-6 rounded-xl border border-border">
+          {/* Search and Filters */}
+          <div className="bg-card p-6 rounded-xl border border-border space-y-4">
+            {/* Search Bar */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
@@ -339,6 +353,31 @@ export default function PartiesPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               />
+            </div>
+
+            {/* Status Filter Buttons */}
+            <div className="flex flex-wrap gap-2">
+              <span className="text-sm font-medium text-muted-foreground pt-2">
+                Filtra per stato:
+              </span>
+              {[
+                { value: "iniziale", label: "Iniziale" },
+                { value: "caricato_furgone", label: "Caricato nel Furgone" },
+                { value: "scaricato_furgone", label: "Scaricato dal Furgone" },
+                { value: "scaricato_scaffale", label: "Ritornato al deposito" },
+              ].map((status) => (
+                <button
+                  key={status.value}
+                  onClick={() => toggleStatusFilter(status.value)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    selectedStatuses.includes(status.value)
+                      ? "bg-primary text-white"
+                      : "bg-surface text-muted-foreground border border-border hover:bg-surface/80"
+                  }`}
+                >
+                  {status.label}
+                </button>
+              ))}
             </div>
           </div>
 

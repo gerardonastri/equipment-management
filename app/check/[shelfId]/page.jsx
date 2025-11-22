@@ -271,7 +271,7 @@ export default function CheckPage({ params }) {
             Contatta l'amministratore per verificare l'assegnazione.
           </p>
           <button
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/admin")}
             className="btn-primary w-full"
           >
             Torna alla Dashboard
