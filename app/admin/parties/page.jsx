@@ -3,21 +3,11 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
-import {
-  Calendar,
-  Plus,
-  Search,
-  Edit,
-  Trash2,
-  MapPin,
-  User,
-  Package,
-  Users,
-  Clock,
-  Truck,
-  Home,
-} from "lucide-react";
+import { Plus, Search, Package, Clock, Truck, Home } from "lucide-react";
 import Navbar from "@/components/navbar";
+import { PartyCard } from "@/components/parties/party-card";
+import { PartyFormModal } from "@/components/parties/party-form-modal";
+import { MaterialModal } from "@/components/parties/material-modal";
 import {
   getPartiesData,
   getPartyMaterials,
@@ -32,12 +22,7 @@ const fetcher = () => getPartiesData();
 
 export default function PartiesPage() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedStatuses, setSelectedStatuses] = useState([
-    "iniziale",
-    "caricato_furgone",
-    "scaricato_furgone",
-    "scaricato_scaffale",
-  ]);
+  const [selectedStatuses, setSelectedStatuses] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editParty, setEditParty] = useState(null);
@@ -98,6 +83,8 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "Iniziale";
+      case "caricato_scaffale":
+        return "Scaricato da Scaffale";
       case "caricato_furgone":
         return "Caricato nel Furgone";
       case "scaricato_furgone":
@@ -113,6 +100,8 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return <Clock className="w-4 h-4" />;
+      case "caricato_scaffale":
+        return <Package className="w-4 h-4" />;
       case "caricato_furgone":
         return <Truck className="w-4 h-4" />;
       case "scaricato_furgone":
@@ -270,7 +259,8 @@ export default function PartiesPage() {
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
 
-    const matchesStatus = selectedStatuses.includes(party.stato);
+    const matchesStatus =
+      selectedStatuses.length === 0 || selectedStatuses.includes(party.stato);
 
     return matchesSearch && matchesStatus;
   });
@@ -383,765 +373,105 @@ export default function PartiesPage() {
 
           {/* Parties List */}
           <div className="grid gap-6">
-            {filteredParties.map((party) => (
-              <motion.div
-                key={party.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-card p-6 rounded-xl border border-border card-hover"
-              >
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-3">
-                      <h3 className="text-xl font-semibold text-foreground">
-                        {party.nome}
-                      </h3>
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center space-x-1 ${getStatusColor(
-                          party.stato
-                        )}`}
-                      >
-                        {getStatusIcon(party.stato)}
-                        <span>{getStatusText(party.stato)}</span>
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                      <div className="flex items-center space-x-2">
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Data:</span>
-                        <span className="font-medium text-foreground">
-                          {new Date(party.data).toLocaleDateString("it-IT")}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <MapPin className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Luogo:</span>
-                        <span className="font-medium text-foreground">
-                          {party.luogo}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <User className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          Animatore:
-                        </span>
-                        <span className="font-medium text-foreground">
-                          {party.animatore?.nome || "Non assegnato"}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Users className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          Magazziniere:
-                        </span>
-                        <span className="font-medium text-foreground">
-                          {party.magazziniere?.nome || "Non assegnato"}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Package className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Scaffali:</span>
-                        <span className="font-medium text-foreground">
-                          {party.shelves
-                            ? party.shelves
-                                .split(",")
-                                .map((s) => `#${s}`)
-                                .join(", ")
-                            : "Nessuno"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {party.note && (
-                      <p className="text-sm text-muted-foreground mt-3 italic">
-                        {party.note}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => openMaterialModal(party)}
-                      className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors"
-                      title="Gestisci Materiale"
-                    >
-                      <Package className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleEditParty(party)}
-                      className="p-2 text-muted-foreground hover:text-foreground hover:bg-surface rounded-lg transition-colors"
-                      title="Modifica Festa"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteParty(party.id)}
-                      className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+            {isLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Caricamento feste...</p>
                 </div>
-              </motion.div>
-            ))}
+              </div>
+            ) : error ? (
+              <div className="text-center text-danger">
+                Errore nel caricamento dei dati
+              </div>
+            ) : (
+              filteredParties.map((party) => (
+                <PartyCard
+                  key={party.id}
+                  party={party}
+                  onEdit={handleEditParty}
+                  onDelete={handleDeleteParty}
+                  onMaterial={openMaterialModal}
+                  getStatusColor={getStatusColor}
+                  getStatusText={getStatusText}
+                  getStatusIcon={getStatusIcon}
+                />
+              ))
+            )}
           </div>
 
-          {/* Add Party Modal */}
-          {showAddForm && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="bg-card p-6 rounded-xl border border-border max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-              >
-                <h3 className="text-xl font-semibold text-foreground mb-4">
-                  Crea Nuova Festa
-                </h3>
+          {/* Add/Edit Party Modal */}
+          <PartyFormModal
+            isOpen={showAddForm}
+            isEdit={false}
+            party={newParty}
+            onPartyChange={setNewParty}
+            users={users}
+            macroCategories={macroCategories}
+            selectedMaterials={selectedMaterials}
+            onMaterialToggle={toggleMaterialSelection}
+            onAddShelf={(shelf) =>
+              setNewParty((prev) => ({
+                ...prev,
+                shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
+              }))
+            }
+            onRemoveShelf={(shelf) =>
+              setNewParty((prev) => ({
+                ...prev,
+                shelves: prev.shelves.filter((s) => s !== shelf),
+              }))
+            }
+            onSubmit={handleAddParty}
+            onCancel={() => {
+              setShowAddForm(false);
+              setSelectedMaterials([]);
+            }}
+            allParties={parties}
+          />
 
-                <form onSubmit={handleAddParty} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Nome Festa
-                      </label>
-                      <input
-                        type="text"
-                        value={newParty.nome}
-                        onChange={(e) =>
-                          setNewParty((prev) => ({
-                            ...prev,
-                            nome: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      />
-                    </div>
+          <PartyFormModal
+            isOpen={showEditForm}
+            isEdit={true}
+            party={editParty}
+            onPartyChange={setEditParty}
+            users={users}
+            macroCategories={macroCategories}
+            selectedMaterials={selectedMaterials}
+            onMaterialToggle={toggleMaterialSelection}
+            onAddShelf={(shelf) =>
+              editParty &&
+              setEditParty((prev) => ({
+                ...prev,
+                shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
+              }))
+            }
+            onRemoveShelf={(shelf) =>
+              editParty &&
+              setEditParty((prev) => ({
+                ...prev,
+                shelves: prev.shelves.filter((s) => s !== shelf),
+              }))
+            }
+            onSubmit={handleUpdateParty}
+            onCancel={() => {
+              setShowEditForm(false);
+              setEditParty(null);
+            }}
+            allParties={parties}
+          />
 
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Data
-                      </label>
-                      <input
-                        type="date"
-                        value={newParty.data}
-                        onChange={(e) =>
-                          setNewParty((prev) => ({
-                            ...prev,
-                            data: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Luogo
-                    </label>
-                    <input
-                      type="text"
-                      value={newParty.luogo}
-                      onChange={(e) =>
-                        setNewParty((prev) => ({
-                          ...prev,
-                          luogo: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Animatore
-                      </label>
-                      <select
-                        value={newParty.animatore_id}
-                        onChange={(e) =>
-                          setNewParty((prev) => ({
-                            ...prev,
-                            animatore_id: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">Seleziona animatore...</option>
-                        {users
-                          .filter(
-                            (user) =>
-                              user.ruolo === "animatore" ||
-                              user.ruolo === "amministratore"
-                          )
-                          .map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.nome}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Magazziniere
-                      </label>
-                      <select
-                        value={newParty.magazziniere_id}
-                        onChange={(e) =>
-                          setNewParty((prev) => ({
-                            ...prev,
-                            magazziniere_id: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">Seleziona magazziniere...</option>
-                        {users
-                          .filter(
-                            (user) =>
-                              user.ruolo === "magazziniere" ||
-                              user.ruolo === "amministratore"
-                          )
-                          .map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.nome}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Stato
-                    </label>
-                    <select
-                      value={newParty.stato}
-                      onChange={(e) =>
-                        setNewParty((prev) => ({
-                          ...prev,
-                          stato: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="iniziale">Iniziale</option>
-                      <option value="caricato_furgone">
-                        Caricato nel Furgone
-                      </option>
-                      <option value="scaricato_furgone">
-                        Scaricato dal Furgone
-                      </option>
-                      <option value="scaricato_scaffale">
-                        Scaricato da Scaffale
-                      </option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Note
-                    </label>
-                    <textarea
-                      value={newParty.note}
-                      onChange={(e) =>
-                        setNewParty((prev) => ({
-                          ...prev,
-                          note: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      rows="3"
-                      placeholder="Note aggiuntive..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-3">
-                      Materiale da Assegnare
-                    </label>
-                    <div className="border border-border rounded-lg p-4 max-h-48 overflow-y-auto">
-                      {macroCategories.length > 0 ? (
-                        <div className="space-y-2">
-                          {macroCategories.map((macro) => (
-                            <label
-                              key={macro.id}
-                              className="flex items-center space-x-3 cursor-pointer hover:bg-surface p-2 rounded-lg transition-colors"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedMaterials.includes(macro.id)}
-                                onChange={() =>
-                                  toggleMaterialSelection(macro.id)
-                                }
-                                className="w-4 h-4 text-primary border-border rounded focus:ring-2 focus:ring-ring"
-                              />
-                              <span className="text-sm font-medium text-foreground">
-                                {macro.name}
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          Nessuna macro-categoria disponibile. Crea prima del
-                          materiale nell'inventario.
-                        </p>
-                      )}
-                    </div>
-                    {selectedMaterials.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {selectedMaterials.length} macro-categorie selezionate
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Scaffali
-                    </label>
-                    <div className="space-y-3">
-                      <div className="flex space-x-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={shelfInput}
-                          onChange={(e) => setShelfInput(e.target.value)}
-                          onKeyPress={(e) =>
-                            e.key === "Enter" &&
-                            (e.preventDefault(), addShelf())
-                          }
-                          className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                          placeholder="Numero scaffale..."
-                        />
-                        <button
-                          type="button"
-                          onClick={addShelf}
-                          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                        >
-                          Aggiungi
-                        </button>
-                      </div>
-
-                      {newParty.shelves.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {newParty.shelves.map((shelf) => (
-                            <span
-                              key={shelf}
-                              className="inline-flex items-center space-x-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
-                            >
-                              <span>#{shelf}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeShelf(shelf)}
-                                className="hover:text-primary/70"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <p className="text-xs text-muted-foreground">
-                        Aggiungi uno o più scaffali per questa festa
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddForm(false);
-                        setSelectedMaterials([]);
-                        setShelfInput("");
-                      }}
-                      className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
-                    >
-                      Annulla
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      Crea Festa
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            </motion.div>
-          )}
-
-          {/* Edit Party Modal */}
-          {showEditForm && editParty && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="bg-card p-6 rounded-xl border border-border max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-              >
-                <h3 className="text-xl font-semibold text-foreground mb-4">
-                  Modifica Festa
-                </h3>
-
-                <form onSubmit={handleUpdateParty} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Nome Festa
-                      </label>
-                      <input
-                        type="text"
-                        value={editParty.nome}
-                        onChange={(e) =>
-                          setEditParty((prev) => ({
-                            ...prev,
-                            nome: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Data
-                      </label>
-                      <input
-                        type="date"
-                        value={editParty.data}
-                        onChange={(e) =>
-                          setEditParty((prev) => ({
-                            ...prev,
-                            data: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Luogo
-                    </label>
-                    <input
-                      type="text"
-                      value={editParty.luogo}
-                      onChange={(e) =>
-                        setEditParty((prev) => ({
-                          ...prev,
-                          luogo: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Animatore
-                      </label>
-                      <select
-                        value={editParty.animatore_id || ""}
-                        onChange={(e) =>
-                          setEditParty((prev) => ({
-                            ...prev,
-                            animatore_id: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">Seleziona animatore...</option>
-                        {users
-                          .filter(
-                            (user) =>
-                              user.ruolo === "animatore" ||
-                              user.ruolo === "amministratore"
-                          )
-                          .map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.nome}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Magazziniere
-                      </label>
-                      <select
-                        value={editParty.magazziniere_id || ""}
-                        onChange={(e) =>
-                          setEditParty((prev) => ({
-                            ...prev,
-                            magazziniere_id: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">Seleziona magazziniere...</option>
-                        {users
-                          .filter(
-                            (user) =>
-                              user.ruolo === "magazziniere" ||
-                              user.ruolo === "amministratore"
-                          )
-                          .map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.nome}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Stato
-                    </label>
-                    <select
-                      value={editParty.stato}
-                      onChange={(e) =>
-                        setEditParty((prev) => ({
-                          ...prev,
-                          stato: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="iniziale">Iniziale</option>
-                      <option value="caricato_furgone">
-                        Caricato nel Furgone
-                      </option>
-                      <option value="scaricato_furgone">
-                        Scaricato dal Furgone
-                      </option>
-                      <option value="scaricato_scaffale">
-                        Scaricato da Scaffale
-                      </option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Note
-                    </label>
-                    <textarea
-                      value={editParty.note || ""}
-                      onChange={(e) =>
-                        setEditParty((prev) => ({
-                          ...prev,
-                          note: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      rows="3"
-                      placeholder="Note aggiuntive..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Scaffali
-                    </label>
-                    <div className="space-y-3">
-                      <div className="flex space-x-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={shelfInput}
-                          onChange={(e) => setShelfInput(e.target.value)}
-                          onKeyPress={(e) =>
-                            e.key === "Enter" &&
-                            (e.preventDefault(), addShelfToEdit())
-                          }
-                          className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                          placeholder="Numero scaffale..."
-                        />
-                        <button
-                          type="button"
-                          onClick={addShelfToEdit}
-                          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                        >
-                          Aggiungi
-                        </button>
-                      </div>
-
-                      {editParty.shelves.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {editParty.shelves.map((shelf) => (
-                            <span
-                              key={shelf}
-                              className="inline-flex items-center space-x-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
-                            >
-                              <span>#{shelf}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeShelfFromEdit(shelf)}
-                                className="hover:text-primary/70"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <p className="text-xs text-muted-foreground">
-                        Aggiungi uno o più scaffali per questa festa
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowEditForm(false);
-                        setEditParty(null);
-                        setShelfInput("");
-                      }}
-                      className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
-                    >
-                      Annulla
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      Salva Modifiche
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            </motion.div>
-          )}
-
-          {/* Material Assignment Modal */}
-          {showMaterialModal && selectedParty && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="bg-card p-6 rounded-xl border border-border max-w-4xl w-full max-h-[90vh] overflow-y-auto"
-              >
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold text-foreground">
-                    Materiale per: {selectedParty.nome}
-                  </h3>
-                  <button
-                    onClick={() => setShowMaterialModal(false)}
-                    className="p-2 hover:bg-surface rounded-lg transition-colors"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                {loadingMaterials ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Available Materials */}
-                    <div>
-                      <h4 className="text-lg font-medium text-foreground mb-4">
-                        Macro-Categorie Disponibili
-                      </h4>
-                      <div className="space-y-2 max-h-96 overflow-y-auto">
-                        {macroCategories.map((macro) => (
-                          <div
-                            key={macro.id}
-                            className="flex items-center justify-between p-3 border border-border rounded-lg"
-                          >
-                            <span className="font-medium">{macro.name}</span>
-                            <button
-                              onClick={() => handleAssignMaterial(macro.id)}
-                              className="btn-primary text-sm px-3 py-1"
-                              disabled={partyMaterials.some(
-                                (m) => m.id === macro.id
-                              )}
-                            >
-                              {partyMaterials.some((m) => m.id === macro.id)
-                                ? "Assegnato"
-                                : "Assegna"}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Assigned Materials */}
-                    <div>
-                      <h4 className="text-lg font-medium text-foreground mb-4">
-                        Materiale Assegnato
-                      </h4>
-                      <div className="space-y-4 max-h-96 overflow-y-auto">
-                        {partyMaterials.map((macro) => (
-                          <div
-                            key={macro.id}
-                            className="border border-border rounded-lg p-4"
-                          >
-                            <div className="flex items-center justify-between mb-3">
-                              <h5 className="font-semibold text-primary">
-                                {macro.name}
-                              </h5>
-                              <button
-                                onClick={() => handleRemoveMaterial(macro.id)}
-                                className="text-danger hover:bg-red-50 p-1 rounded transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-
-                            {macro.categories?.map((category) => (
-                              <div key={category.id} className="ml-4 mb-2">
-                                <div className="font-medium text-sm text-foreground">
-                                  • {category.name}
-                                </div>
-                                {category.subcategories?.map((sub) => (
-                                  <div
-                                    key={sub.id}
-                                    className="ml-4 text-sm text-muted-foreground"
-                                  >
-                                    - {sub.name}
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        ))}
-
-                        {partyMaterials.length === 0 && (
-                          <p className="text-muted-foreground text-center py-8">
-                            Nessun materiale assegnato
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            </motion.div>
-          )}
+          {/* Material Modal */}
+          <MaterialModal
+            isOpen={showMaterialModal}
+            party={selectedParty}
+            materials={partyMaterials}
+            loading={loadingMaterials}
+            macroCategories={macroCategories}
+            onAssignMaterial={handleAssignMaterial}
+            onRemoveMaterial={handleRemoveMaterial}
+            onClose={() => setShowMaterialModal(false)}
+          />
         </motion.div>
       </main>
     </div>

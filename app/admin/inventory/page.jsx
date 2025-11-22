@@ -5,489 +5,297 @@ import { motion } from "framer-motion";
 import {
   Plus,
   Search,
+  AlertCircle,
+  ImageIcon,
   Trash2,
-  Filter,
+  Edit,
   ChevronDown,
-  ChevronRight,
 } from "lucide-react";
+import useSWR from "swr";
+import {
+  getInventoryItems,
+  deleteInventoryItem,
+} from "@/app/actions/inventory-actions";
+import InventoryFormModal from "@/components/inventory/inventory-form-modal";
+import ImageUploadModal from "@/components/inventory/image-upload-modal";
 import Navbar from "@/components/navbar";
-import { createBrowserClient } from "@supabase/ssr";
+
+const ITEMS_PER_PAGE = 12;
+
+const fetcher = () => getInventoryItems();
 
 export default function InventoryPage() {
+  const { data: allItems = [], mutate } = useSWR("inventory", fetcher, {
+    revalidateOnFocus: false,
+  });
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [expandedCategories, setExpandedCategories] = useState({});
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [inventory, setInventory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [newItem, setNewItem] = useState({
-    name: "",
-    type: "sotto",
-    parent_id: "",
+  const [filterMissing, setFilterMissing] = useState(false);
+  const [filterCategory, setFilterCategory] = useState("all"); // Add category filter
+  const [displayedItems, setDisplayedItems] = useState([]);
+  const [page, setPage] = useState(1);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isImageOpen, setIsImageOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const categories = [
+    "all",
+    ...new Set(allItems.map((item) => item.type).filter(Boolean)),
+  ];
+
+  const filteredItems = allItems.filter((item) => {
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.type.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesMissing = !filterMissing || item.materiale_mancante === true;
+    const matchesCategory =
+      filterCategory === "all" || item.type === filterCategory;
+    return matchesSearch && matchesMissing && matchesCategory;
   });
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
-
   useEffect(() => {
-    const fetchInventory = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("inventory_items")
-          .select("*")
-          .order("name", { ascending: true });
+    const startIdx = 0;
+    const endIdx = page * ITEMS_PER_PAGE;
+    setDisplayedItems(filteredItems.slice(startIdx, endIdx));
+  }, [page, filteredItems]);
 
-        if (error) {
-          console.error("Errore fetch inventario:", error.message);
-          return;
-        }
+  const hasMore = page * ITEMS_PER_PAGE < filteredItems.length;
+  const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
 
-        // Ricostruisci la gerarchia
-        const macros = data.filter((item) => item.type === "macro");
-        const categories = data.filter((item) => item.type === "categoria");
-        const subs = data.filter((item) => item.type === "sotto");
-
-        const structured = macros.map((macro) => {
-          const macroCategories = categories
-            .filter((c) => c.parent_id === macro.id)
-            .map((cat) => ({
-              ...cat,
-              subs: subs.filter((s) => s.parent_id === cat.id),
-            }));
-
-          return { ...macro, categories: macroCategories };
-        });
-
-        setInventory(structured);
-      } catch (error) {
-        console.error("Errore durante il fetch:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInventory();
-  }, []);
-
-  const toggleCategory = (categoryId) => {
-    setExpandedCategories((prev) => ({
-      ...prev,
-      [categoryId]: !prev[categoryId],
-    }));
-  };
-
-  const handleAddItem = async (e) => {
-    e.preventDefault();
-
+  const handleDelete = async (id) => {
+    if (!confirm("Sei sicuro di voler eliminare questo articolo?")) return;
+    setIsDeleting(true);
     try {
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .insert([newItem])
-        .select();
-
-      if (error) {
-        console.error("Errore aggiunta item:", error.message);
-        return;
-      }
-
-      // Refresh inventory data
-      const { data: allData, error: fetchError } = await supabase
-        .from("inventory_items")
-        .select("*")
-        .order("name", { ascending: true });
-
-      if (!fetchError) {
-        const macros = allData.filter((item) => item.type === "macro");
-        const categories = allData.filter((item) => item.type === "categoria");
-        const subs = allData.filter((item) => item.type === "sotto");
-
-        const structured = macros.map((macro) => {
-          const macroCategories = categories
-            .filter((c) => c.parent_id === macro.id)
-            .map((cat) => ({
-              ...cat,
-              subs: subs.filter((s) => s.parent_id === cat.id),
-            }));
-
-          return { ...macro, categories: macroCategories };
-        });
-
-        setInventory(structured);
-      }
-
-      setShowAddForm(false);
-      setNewItem({
-        name: "",
-        type: "sotto",
-        parent_id: "",
-      });
-    } catch (error) {
-      console.error("Errore durante l'aggiunta:", error);
+      await deleteInventoryItem(id);
+      mutate();
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleDeleteItem = async (itemId) => {
-    if (!confirm("Sei sicuro di voler eliminare questo elemento?")) return;
-
-    try {
-      const { error } = await supabase
-        .from("inventory_items")
-        .delete()
-        .eq("id", itemId);
-
-      if (error) {
-        console.error("Errore eliminazione item:", error.message);
-        return;
-      }
-
-      // Refresh inventory data
-      const { data: allData, error: fetchError } = await supabase
-        .from("inventory_items")
-        .select("*")
-        .order("name", { ascending: true });
-
-      if (!fetchError) {
-        const macros = allData.filter((item) => item.type === "macro");
-        const categories = allData.filter((item) => item.type === "categoria");
-        const subs = allData.filter((item) => item.type === "sotto");
-
-        const structured = macros.map((macro) => {
-          const macroCategories = categories
-            .filter((c) => c.parent_id === macro.id)
-            .map((cat) => ({
-              ...cat,
-              subs: subs.filter((s) => s.parent_id === cat.id),
-            }));
-
-          return { ...macro, categories: macroCategories };
-        });
-
-        setInventory(structured);
-      }
-    } catch (error) {
-      console.error("Errore durante l'eliminazione:", error);
-    }
+  const handleImageClick = (item) => {
+    setSelectedItem(item);
+    setIsImageOpen(true);
   };
 
-  const filteredInventory = () => {
-    if (!searchTerm && selectedCategory === "all") return inventory;
-
-    return inventory.filter((macro) => {
-      if (selectedCategory !== "all" && selectedCategory !== macro.id)
-        return false;
-
-      const matchesMacro = macro.name
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-      const hasMatchingCategories = macro.categories.some((cat) => {
-        const matchesCategory = cat.name
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
-        const hasMatchingSubs = cat.subs.some((sub) =>
-          sub.name.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-        return matchesCategory || hasMatchingSubs;
-      });
-
-      return matchesMacro || hasMatchingCategories;
-    });
+  const handleEditClick = (item) => {
+    setSelectedItem(item);
+    setIsFormOpen(true);
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-surface">
-        <Navbar />
-        <main className="containerMod py-8">
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Caricamento inventario...</p>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-surface">
       <Navbar />
-
-      <main className="containerMod py-8">
+      <div className="containerMod py-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-6"
         >
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
             <div>
-              <h1 className="text-3xl font-bold text-foreground">Inventario</h1>
+              <h1 className="text-3xl font-bold text-foreground mb-2">
+                Gestione Inventario
+              </h1>
               <p className="text-muted-foreground">
-                Gestisci tutto il materiale disponibile
+                Visualizza, modifica, aggiungi e elimina materiale (
+                {filteredItems.length} articoli)
               </p>
             </div>
             <button
-              onClick={() => setShowAddForm(true)}
-              className="btn-primary flex items-center space-x-2"
+              onClick={() => {
+                setSelectedItem(null);
+                setIsFormOpen(true);
+              }}
+              className="btn-primary flex items-center gap-2 whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
-              <span>Aggiungi Materiale</span>
+              Aggiungi Materiale
             </button>
           </div>
 
           {/* Filters */}
-          <div className="bg-card p-6 rounded-xl border border-border">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Cerca materiale..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
+          <div className="bg-card p-4 rounded-xl border border-border mb-6 space-y-4">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Cerca per nome o tipo..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                />
               </div>
-              <div className="flex items-center space-x-2">
-                <Filter className="w-4 h-4 text-muted-foreground" />
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+              <button
+                onClick={() => {
+                  setFilterMissing(!filterMissing);
+                  setPage(1);
+                }}
+                className={`px-4 py-2 rounded-lg border transition-all flex items-center gap-2 whitespace-nowrap ${
+                  filterMissing
+                    ? "bg-red-50 border-red-200 text-red-700"
+                    : "border-border text-foreground hover:bg-card"
+                }`}
+              >
+                <AlertCircle className="w-4 h-4" />
+                Mancante
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => {
+                    setFilterCategory(cat);
+                    setPage(1);
+                  }}
+                  className={`px-4 py-2 rounded-lg border transition-all text-sm ${
+                    filterCategory === cat
+                      ? "bg-primary text-white border-primary"
+                      : "border-border text-foreground hover:bg-card"
+                  }`}
                 >
-                  <option value="all">Tutte le categorie</option>
-                  {inventory.map((macro) => (
-                    <option key={macro.id} value={macro.id}>
-                      {macro.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  {cat === "all" ? "Tutte le Categorie" : cat}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Inventory List */}
-          <div className="space-y-4">
-            {filteredInventory().map((macro) => (
+          {/* Items Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayedItems.map((item) => (
               <motion.div
-                key={macro.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-card rounded-xl border border-border overflow-hidden"
+                key={item.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-card rounded-xl border border-border overflow-hidden hover:border-primary transition-colors"
               >
-                <button
-                  onClick={() => toggleCategory(macro.id)}
-                  className="w-full p-6 flex items-center justify-between hover:bg-surface transition-colors"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">
-                        {macro.name.charAt(0)}
-                      </span>
-                    </div>
-                    <h2 className="text-xl font-semibold text-primary">
-                      {macro.name}
-                    </h2>
-                    <span className="text-sm text-muted-foreground">
-                      (
-                      {macro.categories.reduce(
-                        (acc, cat) => acc + cat.subs.length,
-                        0
-                      )}{" "}
-                      elementi)
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
+                {/* ... existing image section ... */}
+                <div className="relative h-48 bg-surface flex items-center justify-center group cursor-pointer">
+                  {item.image_url ? (
+                    <>
+                      <img
+                        src={item.image_url || "/placeholder.svg"}
+                        alt={item.name}
+                        className="w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity"
+                        onLoad={(e) => (e.target.style.opacity = "1")}
+                      />
+                      <div
+                        onClick={() => handleImageClick(item)}
+                        className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <span className="text-white text-sm font-medium">
+                          Visualizza Foto
+                        </span>
+                      </div>
+                    </>
+                  ) : (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteItem(macro.id);
-                      }}
-                      className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
+                      onClick={() => handleImageClick(item)}
+                      className="flex flex-col items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      <ImageIcon className="w-8 h-8" />
+                      <span className="text-sm">Aggiungi Foto</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <h3 className="font-semibold text-foreground">
+                        {item.name}
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        {item.type}
+                      </p>
+                    </div>
+                    {item.materiale_mancante && (
+                      <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-medium">
+                        Mancante
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => handleEditClick(item)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-border hover:bg-card text-sm transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Modifica
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      disabled={isDeleting}
+                      className="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-700 transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-                    {expandedCategories[macro.id] ? (
-                      <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                    )}
                   </div>
-                </button>
-
-                {expandedCategories[macro.id] && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="border-t border-border"
-                  >
-                    {macro.categories.map((category) => (
-                      <div
-                        key={category.id}
-                        className="p-6 border-b border-border last:border-b-0"
-                      >
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="font-semibold text-foreground">
-                            {category.name}
-                          </h3>
-                          <button
-                            onClick={() => handleDeleteItem(category.id)}
-                            className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <div className="space-y-2">
-                          {category.subs.map((sub) => (
-                            <div
-                              key={sub.id}
-                              className="flex items-center justify-between p-4 bg-surface rounded-lg hover:bg-card transition-colors"
-                            >
-                              <div className="flex-1">
-                                <h4 className="font-medium text-foreground">
-                                  {sub.name}
-                                </h4>
-                                <p className="text-sm text-muted-foreground">
-                                  Sotto-categoria
-                                </p>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  onClick={() => handleDeleteItem(sub.id)}
-                                  className="p-2 text-muted-foreground hover:text-danger hover:bg-red-50 rounded-lg transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </motion.div>
-                )}
+                </div>
               </motion.div>
             ))}
           </div>
 
-          {/* Add Item Modal */}
-          {showAddForm && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="bg-card p-6 rounded-xl border border-border max-w-md w-full"
+          {hasMore && (
+            <div className="flex justify-center mt-8">
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                className="px-8 py-3 rounded-lg border border-primary text-primary hover:bg-primary hover:text-white transition-all flex items-center gap-2"
               >
-                <h3 className="text-xl font-semibold text-foreground mb-4">
-                  Aggiungi Nuovo Materiale
-                </h3>
+                <span>
+                  Carica altri ({displayedItems.length}/{filteredItems.length})
+                </span>
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
-                <form onSubmit={handleAddItem} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Nome
-                    </label>
-                    <input
-                      type="text"
-                      value={newItem.name}
-                      onChange={(e) =>
-                        setNewItem((prev) => ({
-                          ...prev,
-                          name: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Tipo
-                    </label>
-                    <select
-                      value={newItem.type}
-                      onChange={(e) =>
-                        setNewItem((prev) => ({
-                          ...prev,
-                          type: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    >
-                      <option value="macro">Macro Categoria</option>
-                      <option value="categoria">Categoria</option>
-                      <option value="sotto">Sotto-categoria</option>
-                    </select>
-                  </div>
-
-                  {newItem.type !== "macro" && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        {newItem.type === "categoria"
-                          ? "Macro Categoria"
-                          : "Categoria"}{" "}
-                        Padre
-                      </label>
-                      <select
-                        value={newItem.parent_id}
-                        onChange={(e) =>
-                          setNewItem((prev) => ({
-                            ...prev,
-                            parent_id: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      >
-                        <option value="">Seleziona...</option>
-                        {newItem.type === "categoria" &&
-                          inventory.map((macro) => (
-                            <option key={macro.id} value={macro.id}>
-                              {macro.name}
-                            </option>
-                          ))}
-                        {newItem.type === "sotto" &&
-                          inventory.flatMap((macro) =>
-                            macro.categories.map((cat) => (
-                              <option key={cat.id} value={cat.id}>
-                                {macro.name} → {cat.name}
-                              </option>
-                            ))
-                          )}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddForm(false)}
-                      className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
-                    >
-                      Annulla
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      Aggiungi
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            </motion.div>
+          {displayedItems.length === 0 && (
+            <div className="text-center py-12">
+              <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">Nessun articolo trovato</p>
+            </div>
           )}
         </motion.div>
-      </main>
+      </div>
+
+      {/* Modals */}
+      <InventoryFormModal
+        isOpen={isFormOpen}
+        onClose={() => {
+          setIsFormOpen(false);
+          setSelectedItem(null);
+        }}
+        item={selectedItem}
+        onSuccess={() => {
+          mutate();
+          setIsFormOpen(false);
+          setSelectedItem(null);
+          setPage(1);
+        }}
+      />
+
+      <ImageUploadModal
+        isOpen={isImageOpen}
+        onClose={() => {
+          setIsImageOpen(false);
+          setSelectedItem(null);
+        }}
+        item={selectedItem}
+        onSuccess={() => {
+          mutate();
+          setIsImageOpen(false);
+        }}
+      />
     </div>
   );
 }

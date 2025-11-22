@@ -156,7 +156,8 @@ export async function submitCheck(
   checkedCount,
   totalItems,
   userName,
-  partyName
+  partyName,
+  materialSmarrito = false
 ) {
   try {
     const supabase = await createClient();
@@ -206,6 +207,7 @@ export async function submitCheck(
       user_id: userId,
       type: checkType,
       notes: `Check completato: ${checkedCount}/${totalItems} elementi verificati`,
+      materiale_smarrito: materialSmarrito, // Save material smarrito flag
     });
 
     if (insertError) throw insertError;
@@ -259,9 +261,7 @@ export async function submitCheck(
 
     try {
       const siteUrl =
-        process.env.NEXT_PUBLIC_SITE_URL ||
-        process.env.SITE_URL ||
-        "http://movida-manager.vercel.app";
+        process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
       await fetch(`${siteUrl}/api/telegram`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

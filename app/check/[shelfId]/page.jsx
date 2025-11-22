@@ -14,6 +14,7 @@ import {
   User,
   Calendar,
   Clock,
+  AlertCircle,
 } from "lucide-react";
 import useSWR from "swr";
 import {
@@ -42,6 +43,8 @@ export default function CheckPage({ params }) {
   const [loginError, setLoginError] = useState("");
   const [shelfId, setShelfId] = useState(null);
   const [isCheckCompleted, setIsCheckCompleted] = useState(false);
+  const [materialSmarrito, setMaterialSmarrito] = useState(false);
+  const [userRole, setUserRole] = useState(null);
 
   useEffect(() => {
     const resolveParams = async () => {
@@ -83,6 +86,7 @@ export default function CheckPage({ params }) {
     if (savedUser) {
       const userData = JSON.parse(savedUser);
       setCurrentUser(userData);
+      setUserRole(userData.ruolo);
       setIsAuthenticated(true);
     }
   }, []);
@@ -134,6 +138,7 @@ export default function CheckPage({ params }) {
       const user = result.user;
       sessionStorage.setItem("currentUser", JSON.stringify(user));
       setCurrentUser(user);
+      setUserRole(user.ruolo);
       setIsAuthenticated(true);
       setLoginError("");
     } catch (error) {
@@ -163,6 +168,13 @@ export default function CheckPage({ params }) {
   const handleSubmitCheck = async () => {
     if (!partyData || !currentUser || !shelfId) return;
 
+    if (!isAllItemsChecked() && !materialSmarrito) {
+      alert(
+        "Devi completare tutti gli elementi o spuntare 'materiale smarrito'"
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -175,7 +187,8 @@ export default function CheckPage({ params }) {
         getCheckedCount(),
         getTotalItems(),
         currentUser.nome,
-        partyData.nome
+        partyData.nome,
+        materialSmarrito // Pass material smarrito flag
       );
 
       if (result.error) {
@@ -228,6 +241,39 @@ export default function CheckPage({ params }) {
     return total > 0 ? (checked / total) * 100 : 0;
   };
 
+  const isAllItemsChecked = () => {
+    let totalSelectableItems = 0;
+    let checkedSelectableItems = 0;
+
+    materialData.forEach((macro) => {
+      macro.categories.forEach((category) => {
+        if (category.items.length === 0) {
+          const categoryKey = `${macro.id}-${category.id}`;
+          if (!checkedItems[categoryKey]) {
+            totalSelectableItems++;
+          } else {
+            checkedSelectableItems++;
+          }
+        } else {
+          category.items.forEach((item) => {
+            if (!item.materiale_mancante) {
+              totalSelectableItems++;
+              const itemKey = `${macro.id}-${category.id}-${item.id}`;
+              if (checkedItems[itemKey]) {
+                checkedSelectableItems++;
+              }
+            }
+          });
+        }
+      });
+    });
+
+    return (
+      totalSelectableItems === checkedSelectableItems &&
+      totalSelectableItems > 0
+    );
+  };
+
   if (!shelfId) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -270,15 +316,50 @@ export default function CheckPage({ params }) {
             Non è stata trovata nessuna festa assegnata a questo scaffale.
             Contatta l'amministratore per verificare l'assegnazione.
           </p>
-          <button
-            onClick={() => router.push("/admin")}
+          {/* <button
+            onClick={() => router.push("/")}
             className="btn-primary w-full"
           >
             Torna alla Dashboard
-          </button>
+          </button> */}
         </motion.div>
       </div>
     );
+  }
+
+  if (currentUser && partyData?.animatore_id) {
+    const isAnimator = currentUser.ruolo === "animatore";
+    const isWarehouseOrAdmin = ["magazziniere", "amministratore"].includes(
+      currentUser.ruolo
+    );
+    const isAssignedAnimator = partyData.animatore_id === currentUser.id;
+
+    if (isAnimator && !isAssignedAnimator) {
+      return (
+        <div className="min-h-screen bg-surface flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+          >
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-foreground mb-2">
+              Accesso Negato
+            </h1>
+            <p className="text-muted-foreground mb-6">
+              Solo l'animatore assegnato può accedere a questo check. Sei
+              assegnato a un'altra festa.
+            </p>
+            {/* <button
+              onClick={() => router.push("/")}
+              className="btn-primary w-full"
+            >
+              Torna alla Dashboard
+            </button> */}
+          </motion.div>
+        </div>
+      );
+    }
   }
 
   if (!isAuthenticated) {
@@ -419,9 +500,7 @@ export default function CheckPage({ params }) {
               <div className="grid gap-4">
                 {checkTypes.map((type) => {
                   const Icon = type.icon;
-                  const isAllowed = type.allowedRoles.includes(
-                    currentUser.ruolo
-                  );
+                  const isAllowed = type.allowedRoles.includes(userRole);
                   const isCompleted = existingChecks.some(
                     (check) => check.type === type.id
                   );
@@ -531,9 +610,7 @@ export default function CheckPage({ params }) {
               <p className="text-sm text-muted-foreground">
                 Utente: {currentUser.nome}
               </p>
-              <p className="text-sm text-muted-foreground">
-                Ruolo: {currentUser.ruolo}
-              </p>
+              <p className="text-sm text-muted-foreground">Ruolo: {userRole}</p>
               <p className="text-sm text-muted-foreground">
                 {checkTypes.find((t) => t.id === checkType)?.name}
               </p>
@@ -616,32 +693,44 @@ export default function CheckPage({ params }) {
                           {category.items.map((item) => {
                             const itemKey = `${macro.id}-${category.id}-${item.id}`;
                             const isChecked = checkedItems[itemKey];
+                            const isDisabled = item.materiale_mancante;
 
                             return (
                               <motion.button
                                 key={item.id}
                                 whileTap={{ scale: 0.98 }}
                                 onClick={() =>
+                                  !isDisabled &&
                                   handleItemCheck(
                                     macro.id,
                                     category.id,
                                     item.id
                                   )
                                 }
+                                disabled={isDisabled}
                                 className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
-                                  isChecked
+                                  isDisabled
+                                    ? "opacity-50 cursor-not-allowed bg-gray-100 border-gray-200"
+                                    : isChecked
                                     ? "bg-green-50 border-green-200 text-green-800"
                                     : "bg-surface border-border text-foreground hover:bg-card"
                                 }`}
                               >
-                                {isChecked ? (
+                                {isDisabled ? (
+                                  <div className="w-5 h-5 bg-gray-300 rounded-full" />
+                                ) : isChecked ? (
                                   <CheckCircle className="w-5 h-5 text-green-600" />
                                 ) : (
                                   <Circle className="w-5 h-5 text-muted-foreground" />
                                 )}
-                                <span className="text-sm font-medium">
+                                <span className="text-sm font-medium flex-1">
                                   {item.name}
                                 </span>
+                                {item.materiale_mancante && (
+                                  <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
+                                    Mancante
+                                  </span>
+                                )}
                               </motion.button>
                             );
                           })}
@@ -657,13 +746,36 @@ export default function CheckPage({ params }) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="sticky bottom-4 mt-8"
+            className="sticky bottom-20 mt-8 bg-card p-6 rounded-xl border border-border"
+          >
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={materialSmarrito}
+                onChange={(e) => setMaterialSmarrito(e.target.checked)}
+                className="w-5 h-5 rounded border-border"
+              />
+              <span className="font-medium text-foreground">
+                Materiale Smarrito
+              </span>
+            </label>
+            <p className="text-sm text-muted-foreground mt-2">
+              Spunta se il materiale è stato smarrito durante il check
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="sticky bottom-4 mt-4"
           >
             <button
               onClick={handleSubmitCheck}
-              disabled={isSubmitting || getCheckedCount() === 0}
+              disabled={
+                isSubmitting || (!isAllItemsChecked() && !materialSmarrito)
+              }
               className={`w-full py-4 rounded-xl font-semibold text-white transition-all ${
-                isSubmitting || getCheckedCount() === 0
+                isSubmitting || (!isAllItemsChecked() && !materialSmarrito)
                   ? "bg-muted cursor-not-allowed"
                   : "btn-primary"
               }`}

@@ -47,7 +47,7 @@ export default function Navbar() {
       <motion.nav
         initial={{ y: -100 }}
         animate={{ y: 0 }}
-        className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border"
+        className="sticky top-0 z-999 bg-white/95 backdrop-blur-sm border-b border-border"
       >
         <div className="containerMod">
           <div className="flex items-center justify-between h-16">
