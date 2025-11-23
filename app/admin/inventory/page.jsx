@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Plus,
@@ -30,8 +30,8 @@ export default function InventoryPage() {
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMissing, setFilterMissing] = useState(false);
-  const [filterCategory, setFilterCategory] = useState("all"); // Add category filter
-  const [displayedItems, setDisplayedItems] = useState([]);
+  const [filterCategory, setFilterCategory] = useState("all");
+  // const [displayedItems, setDisplayedItems] = useState([]);
   const [page, setPage] = useState(1);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImageOpen, setIsImageOpen] = useState(false);
@@ -53,11 +53,17 @@ export default function InventoryPage() {
     return matchesSearch && matchesMissing && matchesCategory;
   });
 
-  useEffect(() => {
+  const displayedItems = useMemo(() => {
     const startIdx = 0;
     const endIdx = page * ITEMS_PER_PAGE;
-    setDisplayedItems(filteredItems.slice(startIdx, endIdx));
+    return filteredItems.slice(startIdx, endIdx);
   }, [page, filteredItems]);
+
+  // useEffect(() => {
+  //   const startIdx = 0;
+  //   const endIdx = page * ITEMS_PER_PAGE;
+  //   setDisplayedItems(filteredItems.slice(startIdx, endIdx));
+  // }, [page, filteredItems]);
 
   const hasMore = page * ITEMS_PER_PAGE < filteredItems.length;
   const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
@@ -175,7 +181,6 @@ export default function InventoryPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 className="bg-card rounded-xl border border-border overflow-hidden hover:border-primary transition-colors"
               >
-                {/* ... existing image section ... */}
                 <div className="relative h-48 bg-surface flex items-center justify-center group cursor-pointer">
                   {item.image_url ? (
                     <>
@@ -205,7 +210,6 @@ export default function InventoryPage() {
                   )}
                 </div>
 
-                {/* Content */}
                 <div className="p-4">
                   <div className="flex items-start justify-between mb-2">
                     <div>
@@ -223,7 +227,6 @@ export default function InventoryPage() {
                     )}
                   </div>
 
-                  {/* Actions */}
                   <div className="flex gap-2 mt-4">
                     <button
                       onClick={() => handleEditClick(item)}

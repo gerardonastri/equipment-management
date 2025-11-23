@@ -1,12 +1,12 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 
 export async function getInventoryItems() {
   try {
-    const supabase = await createServerClient();
+    const supabase = await createClient();
 
     const { data, error } = await supabase
       .from("inventory_items")
@@ -24,7 +24,7 @@ export async function getInventoryItems() {
 
 export async function createInventoryItem(formData) {
   try {
-    const supabase = await createServerClient();
+    const supabase = await createClient();
 
     const { data, error } = await supabase
       .from("inventory_items")
@@ -51,16 +51,22 @@ export async function createInventoryItem(formData) {
 
 export async function updateInventoryItem(id, formData) {
   try {
-    const supabase = await createServerClient();
+    const supabase = await createClient();
+
+    const updateData = {
+      name: formData.name,
+      type: formData.type,
+      parent_id: formData.parent_id || null,
+      materiale_mancante: formData.materiale_mancante || false,
+    };
+
+    if (formData.image_url !== undefined) {
+      updateData.image_url = formData.image_url;
+    }
 
     const { data, error } = await supabase
       .from("inventory_items")
-      .update({
-        name: formData.name,
-        type: formData.type,
-        parent_id: formData.parent_id || null,
-        materiale_mancante: formData.materiale_mancante || false,
-      })
+      .update(updateData)
       .eq("id", id)
       .select();
 
@@ -76,7 +82,7 @@ export async function updateInventoryItem(id, formData) {
 
 export async function deleteInventoryItem(id) {
   try {
-    const supabase = await createServerClient();
+    const supabase = await createClient();
 
     const { error } = await supabase
       .from("inventory_items")
@@ -95,15 +101,17 @@ export async function deleteInventoryItem(id) {
 
 export async function uploadInventoryImage(itemId, file) {
   try {
-    const supabase = createClient(
+    const supabase = createServiceClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY, // ❤️ bypassa RLS completamente
-      { auth: { persistSession: false } }
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      {
+        auth: { persistSession: false },
+      }
     );
-    // const supabase = await createServerClient();
 
     const fileExt = file.name.split(".").pop();
-    const filePath = `${itemId}.${fileExt}`;
+    const fileName = `${itemId}-${Date.now()}.${fileExt}`;
+    const filePath = fileName;
 
     const { error: uploadError } = await supabase.storage
       .from("inventory")

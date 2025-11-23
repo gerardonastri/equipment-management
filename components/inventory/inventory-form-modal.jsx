@@ -1,12 +1,15 @@
 "use client";
 
+import React from "react";
+
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { X, AlertCircle } from "lucide-react";
+import { X, AlertCircle, Upload } from "lucide-react";
 import {
   createInventoryItem,
   updateInventoryItem,
   getInventoryItems,
+  uploadInventoryImage,
 } from "@/app/actions/inventory-actions";
 
 export default function InventoryFormModal({
@@ -24,10 +27,13 @@ export default function InventoryFormModal({
   const [parentOptions, setParentOptions] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
 
   useEffect(() => {
     if (item) {
       setFormData(item);
+      setImagePreview(item.image_url || null);
     } else {
       setFormData({
         name: "",
@@ -35,7 +41,9 @@ export default function InventoryFormModal({
         parent_id: null,
         materiale_mancante: false,
       });
+      setImagePreview(null);
     }
+    setImageFile(null);
     loadParents();
   }, [item, isOpen]);
 
@@ -43,6 +51,16 @@ export default function InventoryFormModal({
     const items = await getInventoryItems();
     const filteredParents = items.filter((i) => i.type !== "sotto");
     setParentOptions(filteredParents);
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => setImagePreview(e.target?.result);
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -60,9 +78,21 @@ export default function InventoryFormModal({
 
       if (result.error) {
         setError(result.error);
-      } else {
-        onSuccess();
+        return;
       }
+
+      if (imageFile && result.data) {
+        const uploadResult = await uploadInventoryImage(
+          result.data.id,
+          imageFile
+        );
+        if (uploadResult.error) {
+          setError(uploadResult.error);
+          return;
+        }
+      }
+
+      onSuccess();
     } finally {
       setIsSubmitting(false);
     }
@@ -75,14 +105,14 @@ export default function InventoryFormModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000] p-4"
       onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-card rounded-xl border border-border max-w-md w-full p-6"
+        className="bg-card rounded-xl border border-border max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-foreground">
@@ -179,6 +209,37 @@ export default function InventoryFormModal({
             />
             <span className="text-sm text-foreground">Materiale mancante</span>
           </label>
+
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Immagine
+            </label>
+            {imagePreview && (
+              <div className="mb-2 rounded-lg overflow-hidden">
+                <img
+                  src={imagePreview || "/placeholder.svg"}
+                  alt="Preview"
+                  className="w-full h-32 object-cover"
+                />
+              </div>
+            )}
+            <label className="border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-primary transition-colors block">
+              <Upload className="w-6 h-6 text-muted-foreground mx-auto mb-1" />
+              <p className="text-xs text-foreground font-medium">
+                Scegli una foto
+              </p>
+              <p className="text-xs text-muted-foreground">
+                PNG, JPG fino a 5MB
+              </p>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                disabled={isSubmitting}
+                className="hidden"
+              />
+            </label>
+          </div>
 
           <div className="flex gap-2 pt-4">
             <button

@@ -32,7 +32,9 @@ export default function AdminProvider({ children }) {
       } else if (event === "SIGNED_OUT") {
         setUser(null);
         setIsAdmin(false);
-        router.push("/admin/login");
+        setTimeout(() => {
+          router.push("/admin/login");
+        }, 10);
       }
     });
 
@@ -49,7 +51,12 @@ export default function AdminProvider({ children }) {
         await checkUserRole(session.user);
       } else {
         // Se non c'è sessione e siamo in una pagina admin (non login), reindirizza
-        if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+        if (
+          !loading &&
+          !isAdmin &&
+          pathname.startsWith("/admin") &&
+          pathname !== "/admin/login"
+        ) {
           router.push("/admin/login");
         }
       }
@@ -97,9 +104,6 @@ export default function AdminProvider({ children }) {
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
-      setUser(null);
-      setIsAdmin(false);
-      router.push("/admin/login");
     } catch (error) {
       console.error("[v0] Error signing out:", error);
     }

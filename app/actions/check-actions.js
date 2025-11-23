@@ -60,7 +60,9 @@ export async function getPartyDataForShelf(shelfId) {
           id,
           name,
           type,
-          parent_id
+          parent_id,
+          materiale_mancante,
+          image_url
         )
       `
       )
@@ -90,6 +92,7 @@ export async function getPartyDataForShelf(shelfId) {
       const macroData = {
         id: macro.id,
         name: macro.name,
+        materiale_mancante: macro.materiale_mancante,
         categories: [],
       };
 
@@ -106,6 +109,7 @@ export async function getPartyDataForShelf(shelfId) {
           id: category.id,
           name: category.name,
           items: subcategories || [],
+          materiale_mancante: category.materiale_mancante,
         });
       }
 
@@ -157,7 +161,8 @@ export async function submitCheck(
   totalItems,
   userName,
   partyName,
-  materialSmarrito = false
+  materialSmarrito = false,
+  itemsToMarkMissing = []
 ) {
   try {
     const supabase = await createClient();
@@ -202,12 +207,27 @@ export async function submitCheck(
       console.log("[v0] Auto-assigning magazziniere:", userId);
     }
 
+    if (materialSmarrito && itemsToMarkMissing.length > 0) {
+      console.log("[v0] Marking items as missing:", itemsToMarkMissing);
+
+      const { error: updateError } = await supabase
+        .from("inventory_items")
+        .update({ materiale_mancante: true })
+        .in("id", itemsToMarkMissing);
+
+      if (updateError) {
+        console.error("[v0] Error marking items as missing:", updateError);
+      } else {
+        console.log("[v0] Successfully marked items as missing");
+      }
+    }
+
     const { error: insertError } = await supabase.from("checks").insert({
       party_id: partyId,
       user_id: userId,
       type: checkType,
       notes: `Check completato: ${checkedCount}/${totalItems} elementi verificati`,
-      materiale_smarrito: materialSmarrito, // Save material smarrito flag
+      materiale_smarrito: materialSmarrito,
     });
 
     if (insertError) throw insertError;
@@ -244,7 +264,9 @@ export async function submitCheck(
       .from("notifications")
       .insert({
         titolo: `Check Completato - ${checkType.replace(/_/g, " ")}`,
-        messaggio: `${userName} ha completato il check per la festa "${partyName}" (Scaffale ${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}`,
+        messaggio: `${userName} ha completato il check per la festa "${partyName}" (Scaffale ${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}${
+          materialSmarrito ? " - MATERIALE SMARRITO" : ""
+        }`,
         tipo: "check",
         letto: false,
       });
@@ -266,7 +288,13 @@ export async function submitCheck(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `✅ Check completato!\n\nFesta: ${partyName}\nScaffale: ${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}`,
+          message: `${
+            materialSmarrito ? "⚠️" : "✅"
+          } Check completato!\n\nFesta: ${partyName}\nScaffale: ${shelfId}\nTipo: ${
+            checkTypeNames[checkType]
+          }\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${
+            materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""
+          }`,
         }),
       });
       console.log("[v0] Telegram notification sent successfully");
@@ -274,7 +302,7 @@ export async function submitCheck(
       console.error("[v0] Error sending Telegram notification:", telegramError);
     }
 
-    revalidatePath(`/check/${shelfId}`);
+    revalidatePath(`/admin/check/${shelfId}`);
 
     return { message: "Check completato con successo!" };
   } catch (error) {

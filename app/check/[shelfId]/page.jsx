@@ -188,7 +188,7 @@ export default function CheckPage({ params }) {
         getTotalItems(),
         currentUser.nome,
         partyData.nome,
-        materialSmarrito // Pass material smarrito flag
+        materialSmarrito
       );
 
       if (result.error) {
@@ -220,7 +220,9 @@ export default function CheckPage({ params }) {
             if (category.items.length === 0) {
               total += 1;
             } else {
-              total += category.items.length;
+              total += category.items.filter(
+                (item) => !item.materiale_mancante
+              ).length;
             }
           } else {
             total += 1;
@@ -249,9 +251,8 @@ export default function CheckPage({ params }) {
       macro.categories.forEach((category) => {
         if (category.items.length === 0) {
           const categoryKey = `${macro.id}-${category.id}`;
-          if (!checkedItems[categoryKey]) {
-            totalSelectableItems++;
-          } else {
+          totalSelectableItems++;
+          if (checkedItems[categoryKey]) {
             checkedSelectableItems++;
           }
         } else {
@@ -316,12 +317,6 @@ export default function CheckPage({ params }) {
             Non è stata trovata nessuna festa assegnata a questo scaffale.
             Contatta l'amministratore per verificare l'assegnazione.
           </p>
-          {/* <button
-            onClick={() => router.push("/")}
-            className="btn-primary w-full"
-          >
-            Torna alla Dashboard
-          </button> */}
         </motion.div>
       </div>
     );
@@ -350,12 +345,6 @@ export default function CheckPage({ params }) {
               Solo l'animatore assegnato può accedere a questo check. Sei
               assegnato a un'altra festa.
             </p>
-            {/* <button
-              onClick={() => router.push("/")}
-              className="btn-primary w-full"
-            >
-              Torna alla Dashboard
-            </button> */}
           </motion.div>
         </div>
       );
@@ -663,10 +652,11 @@ export default function CheckPage({ params }) {
                           {(() => {
                             const categoryKey = `${macro.id}-${category.id}`;
                             const isChecked = checkedItems[categoryKey];
+                            const isDisabled = category.materiale_mancante;
 
                             return (
                               <motion.button
-                                whileTap={{ scale: 0.98 }}
+                                whileTap={{ scale: isDisabled ? 1 : 0.98 }}
                                 onClick={() =>
                                   handleCategoryCheck(macro.id, category.id)
                                 }
@@ -676,7 +666,9 @@ export default function CheckPage({ params }) {
                                     : "bg-surface border-border text-foreground hover:bg-card"
                                 }`}
                               >
-                                {isChecked ? (
+                                {isDisabled ? (
+                                  <div className="w-5 h-5 bg-gray-300 rounded-full" />
+                                ) : isChecked ? (
                                   <CheckCircle className="w-5 h-5 text-green-600" />
                                 ) : (
                                   <Circle className="w-5 h-5 text-muted-foreground" />
@@ -684,6 +676,11 @@ export default function CheckPage({ params }) {
                                 <span className="text-sm font-medium">
                                   Categoria completa
                                 </span>
+                                {category.materiale_mancante && (
+                                  <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
+                                    Mancante
+                                  </span>
+                                )}
                               </motion.button>
                             );
                           })()}
@@ -698,9 +695,8 @@ export default function CheckPage({ params }) {
                             return (
                               <motion.button
                                 key={item.id}
-                                whileTap={{ scale: 0.98 }}
+                                whileTap={{ scale: isDisabled ? 1 : 0.98 }}
                                 onClick={() =>
-                                  !isDisabled &&
                                   handleItemCheck(
                                     macro.id,
                                     category.id,
@@ -723,7 +719,7 @@ export default function CheckPage({ params }) {
                                 ) : (
                                   <Circle className="w-5 h-5 text-muted-foreground" />
                                 )}
-                                <span className="text-sm font-medium flex-1">
+                                <span className="text-sm font-medium flex-1 text-left">
                                   {item.name}
                                 </span>
                                 {item.materiale_mancante && (
