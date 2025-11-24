@@ -21,6 +21,14 @@ export default function AdminProvider({ children }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const signOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error("[v0] Error signing out:", error);
+    }
+  };
+
   useEffect(() => {
     checkAuth();
 
@@ -101,13 +109,7 @@ export default function AdminProvider({ children }) {
     }
   };
 
-  const signOut = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (error) {
-      console.error("[v0] Error signing out:", error);
-    }
-  };
+  console.log("CONTEXT:", context);
 
   if (loading) {
     return (

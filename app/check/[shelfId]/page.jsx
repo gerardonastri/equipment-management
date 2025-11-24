@@ -178,6 +178,7 @@ export default function CheckPage({ params }) {
     setIsSubmitting(true);
 
     try {
+      const uncheckedItemIds = materialSmarrito ? getUncheckedItemIds() : [];
       const result = await submitCheck(
         partyData.id,
         currentUser.id,
@@ -188,7 +189,8 @@ export default function CheckPage({ params }) {
         getTotalItems(),
         currentUser.nome,
         partyData.nome,
-        materialSmarrito
+        materialSmarrito,
+        uncheckedItemIds
       );
 
       if (result.error) {
@@ -231,6 +233,34 @@ export default function CheckPage({ params }) {
       }
     });
     return total;
+  };
+  const getUncheckedItemIds = () => {
+    const uncheckedIds = [];
+
+    materialData.forEach((macro) => {
+      macro.categories.forEach((category) => {
+        if (category.items.length === 0) {
+          // Categoria senza item - controlla se è checkata
+          const categoryKey = `${macro.id}-${category.id}`;
+          if (!checkedItems[categoryKey]) {
+            uncheckedIds.push(category.id);
+          }
+        } else {
+          // Categoria con item - raccogli gli item non checkati
+          category.items.forEach((item) => {
+            // Salta gli item già mancanti
+            if (!item.materiale_mancante) {
+              const itemKey = `${macro.id}-${category.id}-${item.id}`;
+              if (!checkedItems[itemKey]) {
+                uncheckedIds.push(item.id);
+              }
+            }
+          });
+        }
+      });
+    });
+
+    return uncheckedIds;
   };
 
   const getCheckedCount = () => {

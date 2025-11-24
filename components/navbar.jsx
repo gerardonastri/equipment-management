@@ -14,7 +14,7 @@ import {
   X,
   History,
 } from "lucide-react";
-import { useAdmin } from "@/components/admin-provider";
+import { useAdmin } from "@/components/admin-client-provider";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
@@ -40,10 +40,8 @@ export default function Navbar() {
     }
   };
 
-  const handleMobileNavClick = (href) => {
-    // console.log("ciao");
-    router.push(href);
-    // setIsMobileMenuOpen(false);
+  const handleMobileNavClick = () => {
+    setIsMobileMenuOpen(false);
   };
 
   return (
@@ -180,9 +178,9 @@ export default function Navbar() {
                           animate={{ x: 0, opacity: 1 }}
                           transition={{ delay: index * 0.1 }}
                         >
-                          <span
+                          <Link
                             href={item.href}
-                            onClick={() => handleMobileNavClick(item.href)}
+                            onClick={handleMobileNavClick}
                             className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
                               isActive
                                 ? "bg-primary text-white shadow-lg"
@@ -191,7 +189,7 @@ export default function Navbar() {
                           >
                             <Icon className="w-5 h-5" />
                             <span className="font-medium">{item.label}</span>
-                          </span>
+                          </Link>
                         </motion.div>
                       );
                     })}
