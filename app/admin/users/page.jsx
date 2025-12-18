@@ -33,7 +33,7 @@ export default function UsersPage() {
   const roles = [
     { value: "amministratore", label: "Amministratore", color: "text-danger" },
     { value: "magazziniere", label: "Magazziniere", color: "text-secondary" },
-    { value: "animatore", label: "Animatore", color: "text-primary" },
+    { value: "animatore", label: "Animatore", color: "text-green-500" },
   ];
 
   const getRoleColor = (role) => {

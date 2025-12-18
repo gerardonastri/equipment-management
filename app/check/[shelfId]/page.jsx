@@ -15,6 +15,7 @@ import {
   Calendar,
   Clock,
   AlertCircle,
+  Lock,
 } from "lucide-react";
 import useSWR from "swr";
 import {
@@ -69,6 +70,7 @@ export default function CheckPage({ params }) {
   );
 
   const partyData = data?.party;
+  // Assicuriamoci che sia sempre un array
   const existingChecks = data?.checks || [];
   const materialData = data?.materialHierarchy || [];
 
@@ -91,6 +93,7 @@ export default function CheckPage({ params }) {
     }
   }, []);
 
+  // Ordine rigoroso delle fasi
   const checkTypes = [
     {
       id: "deposito_scaffale",
@@ -128,7 +131,10 @@ export default function CheckPage({ params }) {
     setLoginError("");
 
     try {
-      const result = await authenticateUser(loginData.name, loginData.code);
+      const result = await authenticateUser(
+        loginData.name.toLowerCase().trim(),
+        loginData.code
+      );
 
       if (result.error) {
         setLoginError(result.error);
@@ -234,21 +240,18 @@ export default function CheckPage({ params }) {
     });
     return total;
   };
+
   const getUncheckedItemIds = () => {
     const uncheckedIds = [];
-
     materialData.forEach((macro) => {
       macro.categories.forEach((category) => {
         if (category.items.length === 0) {
-          // Categoria senza item - controlla se è checkata
           const categoryKey = `${macro.id}-${category.id}`;
           if (!checkedItems[categoryKey]) {
             uncheckedIds.push(category.id);
           }
         } else {
-          // Categoria con item - raccogli gli item non checkati
           category.items.forEach((item) => {
-            // Salta gli item già mancanti
             if (!item.materiale_mancante) {
               const itemKey = `${macro.id}-${category.id}-${item.id}`;
               if (!checkedItems[itemKey]) {
@@ -259,7 +262,6 @@ export default function CheckPage({ params }) {
         }
       });
     });
-
     return uncheckedIds;
   };
 
@@ -304,6 +306,8 @@ export default function CheckPage({ params }) {
       totalSelectableItems > 0
     );
   };
+
+  // --- RENDERING ---
 
   if (!shelfId) {
     return (
@@ -354,9 +358,6 @@ export default function CheckPage({ params }) {
 
   if (currentUser && partyData?.animatore_id) {
     const isAnimator = currentUser.ruolo === "animatore";
-    const isWarehouseOrAdmin = ["magazziniere", "amministratore"].includes(
-      currentUser.ruolo
-    );
     const isAssignedAnimator = partyData.animatore_id === currentUser.id;
 
     if (isAnimator && !isAssignedAnimator) {
@@ -467,6 +468,7 @@ export default function CheckPage({ params }) {
     );
   }
 
+  // --- SELETTORE CHECK CON LOGICA PROPEDEUTICA RINFORZATA ---
   if (!checkType) {
     return (
       <div className="min-h-screen bg-surface">
@@ -517,54 +519,97 @@ export default function CheckPage({ params }) {
                 Seleziona il tipo di check
               </h2>
               <div className="grid gap-4">
-                {checkTypes.map((type) => {
+                {checkTypes.map((type, index) => {
                   const Icon = type.icon;
-                  const isAllowed = type.allowedRoles.includes(userRole);
+
+                  // 1. Controllo se questo check è già stato fatto
                   const isCompleted = existingChecks.some(
                     (check) => check.type === type.id
                   );
 
+                  // 2. Controllo se la fase precedente è stata fatta
+                  let isPreviousCompleted = true; // Default true per il primo elemento
+                  if (index > 0) {
+                    const previousType = checkTypes[index - 1];
+                    isPreviousCompleted = existingChecks.some(
+                      (check) => check.type === previousType.id
+                    );
+                  }
+
+                  // 3. Controllo se il ruolo è permesso
+                  const isRoleAllowed = type.allowedRoles.includes(userRole);
+
+                  // DEBUG LOGIC (Controlla la console del browser se non vedi i lucchetti)
+                  console.log(`Check: ${type.id}`, {
+                    isCompleted,
+                    isPreviousCompleted,
+                    isRoleAllowed,
+                    adminOverride: false, // Nessun override per admin sulla sequenza
+                  });
+
+                  // Determina se il bottone deve essere disabilitato
+                  // È disabilitato se:
+                  // - È già fatto (isCompleted)
+                  // - OPPURE la fase precedente NON è fatta (!isPreviousCompleted) -> QUESTO VINCE SUL RUOLO
+                  // - OPPURE non ho il ruolo (!isRoleAllowed)
+                  const isDisabled =
+                    isCompleted || !isPreviousCompleted || !isRoleAllowed;
+
+                  // Messaggio di stato
+                  let statusMessage = "";
+                  let statusColor = "text-muted-foreground";
+
+                  if (isCompleted) {
+                    statusMessage = "✓ Check già completato";
+                    statusColor = "text-green-700 font-medium";
+                  } else if (!isPreviousCompleted) {
+                    statusMessage = "🔒 Richiede completamento fase precedente";
+                    statusColor = "text-amber-700 font-bold";
+                  } else if (!isRoleAllowed) {
+                    statusMessage = `⛔ Richiesto ruolo: ${type.allowedRoles.join(
+                      ", "
+                    )}`;
+                    statusColor = "text-red-500";
+                  } else {
+                    statusMessage = `Utente: ${currentUser.nome}`;
+                  }
+
                   return (
                     <motion.button
                       key={type.id}
-                      whileHover={
-                        isAllowed && !isCompleted ? { scale: 1.02 } : {}
-                      }
-                      whileTap={
-                        isAllowed && !isCompleted ? { scale: 0.98 } : {}
-                      }
-                      onClick={() =>
-                        isAllowed && !isCompleted && setCheckType(type.id)
-                      }
-                      disabled={!isAllowed || isCompleted}
-                      className={`bg-card p-6 rounded-xl border border-border text-left ${
+                      whileHover={!isDisabled ? { scale: 1.02 } : {}}
+                      whileTap={!isDisabled ? { scale: 0.98 } : {}}
+                      onClick={() => !isDisabled && setCheckType(type.id)}
+                      disabled={isDisabled}
+                      className={`bg-card p-6 rounded-xl border border-border text-left relative overflow-hidden transition-all duration-200 ${
                         isCompleted
-                          ? "opacity-50 cursor-not-allowed bg-green-50 border-green-200"
-                          : isAllowed
-                          ? "card-hover cursor-pointer"
-                          : "opacity-50 cursor-not-allowed"
+                          ? "opacity-60 bg-green-50 border-green-200 cursor-not-allowed"
+                          : !isPreviousCompleted
+                          ? "opacity-60 bg-gray-100 border-gray-200 grayscale cursor-not-allowed" // Stile più forte per il blocco sequenziale
+                          : !isRoleAllowed
+                          ? "opacity-50 cursor-not-allowed"
+                          : "card-hover cursor-pointer"
                       }`}
                     >
                       <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 bg-surface rounded-lg flex items-center justify-center">
-                          <Icon
-                            className={`w-6 h-6 ${
-                              isCompleted ? "text-green-600" : type.color
-                            }`}
-                          />
+                        <div className="w-12 h-12 bg-surface rounded-lg flex items-center justify-center shrink-0">
+                          {/* Logica icona: Se bloccato per sequenza, mostra Lucchetto */}
+                          {!isPreviousCompleted && !isCompleted ? (
+                            <Lock className="w-6 h-6 text-gray-500" />
+                          ) : (
+                            <Icon
+                              className={`w-6 h-6 ${
+                                isCompleted ? "text-green-600" : type.color
+                              }`}
+                            />
+                          )}
                         </div>
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-foreground">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-semibold text-foreground truncate">
                             {type.name}
                           </h3>
-                          <p className="text-muted-foreground text-sm">
-                            {isCompleted
-                              ? "✓ Check già completato"
-                              : isAllowed
-                              ? `Utente: ${currentUser.nome}`
-                              : `Richiesto ruolo: ${type.allowedRoles.join(
-                                  ", "
-                                )}`}
+                          <p className={`text-sm truncate ${statusColor}`}>
+                            {statusMessage}
                           </p>
                         </div>
                       </div>
@@ -578,6 +623,8 @@ export default function CheckPage({ params }) {
       </div>
     );
   }
+
+  // --- RESTO DEL COMPONENTE (Check completato / Form) ---
 
   if (isCheckCompleted) {
     return (

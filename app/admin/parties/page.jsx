@@ -84,7 +84,7 @@ export default function PartiesPage() {
       case "iniziale":
         return "Iniziale";
       case "caricato_scaffale":
-        return "Scaricato da Scaffale";
+        return "Caricato nello Scaffale";
       case "caricato_furgone":
         return "Caricato nel Furgone";
       case "scaricato_furgone":

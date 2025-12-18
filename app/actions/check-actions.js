@@ -133,10 +133,14 @@ export async function authenticateUser(name, code) {
   try {
     const supabase = await createClient();
 
+    // Convert name to lowercase for case-insensitive comparison
+    const normalizedName = name.toLowerCase().trim();
+
+    // Use ilike for case-insensitive search in PostgreSQL
     const { data: user, error } = await supabase
       .from("users")
       .select("*")
-      .eq("nome", name)
+      .ilike("nome", normalizedName)
       .eq("codice_sicurezza", code)
       .single();
 
@@ -176,6 +180,37 @@ export async function submitCheck(
 
     if (!allowedRoles[checkType]?.includes(userRole)) {
       return { error: "Non hai i permessi per questo tipo di check" };
+    }
+
+    // Verifica la sequenza propedeutica
+    const checkSequence = [
+      "deposito_scaffale",
+      "scaffale_furgone",
+      "furgone_scaffale",
+      "scaffale_deposito",
+    ];
+
+    const currentIndex = checkSequence.indexOf(checkType);
+
+    // Se non è il primo check, verifica che quello precedente sia stato completato
+    if (currentIndex > 0) {
+      const previousCheckType = checkSequence[currentIndex - 1];
+
+      const { data: previousCheck, error: prevError } = await supabase
+        .from("checks")
+        .select("id")
+        .eq("party_id", partyId)
+        .eq("type", previousCheckType)
+        .single();
+
+      if (prevError || !previousCheck) {
+        return {
+          error: `Devi completare prima il check: ${previousCheckType.replace(
+            /_/g,
+            " "
+          )}`,
+        };
+      }
     }
 
     const { data: existingCheck } = await supabase
