@@ -1,21 +1,82 @@
 {
-    "name": "Event Manager",
-    "short_name": "Events",
-    "description": "Gestione eventi e materiale",
+    "name": "Movida Manager",
+    "short_name": "Movida",
+    "description": "Sistema di gestione materiale per agenzia feste con controlli multipli",
     "start_url": "/",
+    "scope": "/",
     "display": "standalone",
-    "background_color": "#0f172a",
-    "theme_color": "#0f172a",
+    "orientation": "portrait-primary",
+    "background_color": "#ffffff",
+    "theme_color": "#dc2626",
     "icons": [
         {
             "src": "/logo.avif",
             "sizes": "192x192",
-            "type": "image/avif"
+            "type": "image/avif",
+            "purpose": "any maskable"
         },
         {
             "src": "/logo.avif",
             "sizes": "512x512",
-            "type": "image/avif"
+            "type": "image/avif",
+            "purpose": "any maskable"
         }
-    ]
+    ],
+    "screenshots": [
+        {
+            "src": "/screenshot-540.png",
+            "sizes": "540x720",
+            "type": "image/png",
+            "form_factor": "narrow"
+        },
+        {
+            "src": "/screenshot-1280.png",
+            "sizes": "1280x720",
+            "type": "image/png",
+            "form_factor": "wide"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Feste",
+            "short_name": "Feste",
+            "description": "Gestisci le feste",
+            "url": "/admin/parties",
+            "icons": [
+                {
+                    "src": "/logo.avif",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "Check",
+            "short_name": "Check",
+            "description": "Esegui i check del materiale",
+            "url": "/check/1",
+            "icons": [
+                {
+                    "src": "/logo.avif",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "Inventario",
+            "short_name": "Inventario",
+            "description": "Gestisci l'inventario",
+            "url": "/admin/inventory",
+            "icons": [
+                {
+                    "src": "/logo.avif",
+                    "sizes": "192x192"
+                }
+            ]
+        }
+    ],
+    "categories": [
+        "productivity",
+        "business"
+    ],
+    "prefer_related_applications": false
 }

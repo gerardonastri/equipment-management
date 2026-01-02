@@ -17,6 +17,7 @@ import {
   removeMaterial,
   updateParty,
 } from "./actions";
+import { offlineFetcher } from "@/lib/cache/offline-fetcher";
 
 const fetcher = () => getPartiesData();
 
@@ -43,10 +44,15 @@ export default function PartiesPage() {
   const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [shelfInput, setShelfInput] = useState("");
 
-  const { data, error, isLoading, mutate } = useSWR("parties-data", fetcher, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-  });
+  const { data, error, isLoading, mutate } = useSWR(
+    "parties-data",
+    () => offlineFetcher("parties-data", fetcher),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 60000,
+    }
+  );
 
   const parties = data?.parties || [];
   const users = data?.users || [];
@@ -83,8 +89,6 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "Iniziale";
-      case "caricato_scaffale":
-        return "Caricato nello Scaffale";
       case "caricato_furgone":
         return "Caricato nel Furgone";
       case "scaricato_furgone":
@@ -100,8 +104,6 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return <Clock className="w-4 h-4" />;
-      case "caricato_scaffale":
-        return <Package className="w-4 h-4" />;
       case "caricato_furgone":
         return <Truck className="w-4 h-4" />;
       case "scaricato_furgone":

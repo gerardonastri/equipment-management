@@ -1,36 +1,68 @@
-// components/swr-provider.jsx
 "use client";
 
 import { SWRConfig } from "swr";
-import { IndexedDBCacheProvider } from "@/lib/cache/swr-cache-provider";
-import { cacheManager } from "@/lib/cache/db";
 import { useEffect, useState } from "react";
+import { IndexedDBCacheProvider } from "@/lib/cache/swr-cache-provider";
+
+let cacheProvider = null;
+
+function getCacheProvider() {
+  if (!cacheProvider) {
+    cacheProvider = new IndexedDBCacheProvider();
+  }
+  return cacheProvider;
+}
 
 export default function SWRProvider({ children }) {
-  const [provider] = useState(() => new IndexedDBCacheProvider());
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    const startApp = async () => {
-      try {
-        await cacheManager.init();
-        await provider.hydrate();
-      } catch (e) {
-        console.error("Errore critico idratazione:", e);
-      } finally {
-        setIsHydrated(true);
-      }
+    // Registra il service worker
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => {
+          console.log("[v0] Service Worker registrato:", reg);
+        })
+        .catch((err) => {
+          console.error("[v0] Errore registrazione SW:", err);
+        });
+    }
+
+    // Idrata il cache dal IndexedDB
+    const provider = getCacheProvider();
+    provider.hydrate().then(() => {
+      setIsReady(true);
+      console.log("[v0] SWRProvider pronto");
+    });
+
+    // Monitora lo stato online/offline
+    const handleOnline = () => {
+      console.log("[v0] Connessione ripristinata");
+      setIsOnline(true);
     };
 
-    startApp();
-  }, [provider]);
+    const handleOffline = () => {
+      console.log("[v0] Connessione persa - modalità offline");
+      setIsOnline(false);
+    };
 
-  if (!isHydrated) {
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  if (!isReady) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex items-center justify-center h-screen">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-slate-900 mx-auto mb-2"></div>
-          <p className="text-sm text-slate-500">Avvio applicazione...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Inizializzazione...</p>
         </div>
       </div>
     );
@@ -39,33 +71,27 @@ export default function SWRProvider({ children }) {
   return (
     <SWRConfig
       value={{
-        provider: () => provider.memoryCache,
         revalidateOnFocus: false,
         revalidateOnReconnect: true,
-        shouldRetryOnError: false,
-        dedupingInterval: 2000,
-        // ✅ AGGIUNTA CHIAVE: Se il fetch fallisce ma abbiamo dati in cache, non considerarlo un errore
+        dedupingInterval: 60000, // 1 minuto
+        focusThrottleInterval: 300000, // 5 minuti
+        errorRetryCount: 3,
+        errorRetryInterval: 5000,
+        // Mostra indicatore online/offline
         onError: (error, key) => {
-          // Controlla se abbiamo dati in cache per questa chiave
-          const cachedData = provider.memoryCache.get(key);
-
-          if (cachedData) {
-            // Abbiamo dati in cache, quindi NON è un vero errore
-            console.log(
-              `⚠️ Fetch fallito per "${key}", ma abbiamo dati in cache`
-            );
-            return; // Non propagare l'errore
+          if (!navigator.onLine) {
+            console.log("[v0] Offline - tentando con cache per:", key);
+          } else {
+            console.error("[v0] Errore SWR:", error);
           }
-
-          // Se non abbiamo dati in cache, allora è un errore reale
-          console.error(`❌ Errore fetch per "${key}":`, error);
-        },
-        // ✅ AGGIUNTA: Usa sempre i dati in cache se disponibili
-        onSuccess: (data, key) => {
-          console.log(`✅ Dati ricevuti per "${key}"`);
         },
       }}
     >
+      {!isOnline && (
+        <div className="fixed top-0 left-0 right-0 bg-yellow-500 text-yellow-900 text-center py-2 z-50 font-medium">
+          📡 Modalità offline - usando dati salvati
+        </div>
+      )}
       {children}
     </SWRConfig>
   );

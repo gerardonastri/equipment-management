@@ -25,7 +25,7 @@ export default function RootLayout({ children }) {
       <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
       <body className="min-h-screen bg-surface antialiased">
-        {/* <SWRProvider>{children}</SWRProvider> */}
+        <SWRProvider>{children}</SWRProvider>
         {children}
       </body>
     </html>
