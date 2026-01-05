@@ -1,11 +1,5 @@
-const CACHE_NAME = "movida-cache-v1";
-const STATIC_ASSETS = [
-  "/",
-  "/offline.html",
-  "/manifest.json",
-  "/icon-192.png",
-  "/icon-512.png",
-];
+const CACHE_NAME = "movida-cache-v2"; // ⬅️ IMPORTANTE: incrementa la versione!
+const STATIC_ASSETS = ["/", "/manifest.json", "/logo.avif"];
 
 // Install event - cache static assets
 self.addEventListener("install", (event) => {
@@ -49,6 +43,16 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.method !== "GET") {
+    return;
+  }
+
+  // ⬅️ AGGIUNTO: Escludi esplicitamente Supabase dalla cache
+  if (
+    url.hostname.includes("supabase.co") ||
+    url.hostname.includes("supabase.in")
+  ) {
+    console.log("[SW] Supabase request - bypassing cache:", url.pathname);
+    event.respondWith(fetch(request));
     return;
   }
 

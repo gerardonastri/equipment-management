@@ -1,17 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
-import {
-  Plus,
-  Search,
-  Package,
-  Clock,
-  Truck,
-  Home,
-  Warehouse,
-} from "lucide-react";
+import { Plus, Search, Package, Clock, Truck, Home } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { PartyCard } from "@/components/parties/party-card";
 import { PartyFormModal } from "@/components/parties/party-form-modal";
@@ -25,14 +17,14 @@ import {
   removeMaterial,
   updateParty,
 } from "./actions";
-import { cacheManager } from "@/lib/cache/db";
 
 const fetcher = () => getPartiesData();
 
 export default function PartiesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState([]);
-  const [showFormModal, setShowFormModal] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
   const [editParty, setEditParty] = useState(null);
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [selectedParty, setSelectedParty] = useState(null);
@@ -49,43 +41,12 @@ export default function PartiesPage() {
     shelves: [],
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
+  const [shelfInput, setShelfInput] = useState("");
 
   const { data, error, isLoading, mutate } = useSWR("parties-data", fetcher, {
     revalidateOnFocus: false,
-    revalidateOnReconnect: true, // Abilitare rivalidazione quando torna online
+    revalidateOnReconnect: false,
   });
-
-  useEffect(() => {
-    if (data?.parties) {
-      cacheManager.cacheParties(data.parties).catch(console.error);
-      cacheManager.cacheUsers(data.users || []).catch(console.error);
-      cacheManager.cacheMacros(data.macroCategories || []).catch(console.error);
-    }
-  }, [data]);
-
-  useEffect(() => {
-    const loadOfflineData = async () => {
-      if (!navigator.onLine && (error || !data)) {
-        const [parties, users, macroCategories] = await Promise.all([
-          cacheManager.getPartiesFromCache(),
-          cacheManager.getUsersFromCache(),
-          cacheManager.getMacrosFromCache(),
-        ]);
-
-        if (parties?.length > 0) {
-          mutate(
-            {
-              parties,
-              users: users || [],
-              macroCategories: macroCategories || [],
-            },
-            false
-          );
-        }
-      }
-    };
-    loadOfflineData().catch(console.error);
-  }, [error, navigator.onLine]);
 
   const parties = data?.parties || [];
   const users = data?.users || [];
@@ -107,8 +68,6 @@ export default function PartiesPage() {
     switch (stato) {
       case "iniziale":
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "caricato_scaffale":
-        return "bg-red-100 text-red-800 border-red-200";
       case "caricato_furgone":
         return "bg-blue-100 text-blue-800 border-blue-200";
       case "scaricato_furgone":
@@ -125,7 +84,7 @@ export default function PartiesPage() {
       case "iniziale":
         return "Iniziale";
       case "caricato_scaffale":
-        return "Caricato sullo scaffale";
+        return "Caricato nello Scaffale";
       case "caricato_furgone":
         return "Caricato nel Furgone";
       case "scaricato_furgone":
@@ -142,7 +101,7 @@ export default function PartiesPage() {
       case "iniziale":
         return <Clock className="w-4 h-4" />;
       case "caricato_scaffale":
-        return <Warehouse className="w-4 h-4" />;
+        return <Package className="w-4 h-4" />;
       case "caricato_furgone":
         return <Truck className="w-4 h-4" />;
       case "scaricato_furgone":
@@ -162,8 +121,8 @@ export default function PartiesPage() {
         selectedMaterials,
       });
 
-      mutate();
-      setShowFormModal(false);
+      mutate(); // Revalidate SWR cache
+      setShowAddForm(false);
       setNewParty({
         nome: "",
         data: "",
@@ -175,6 +134,7 @@ export default function PartiesPage() {
         shelves: [],
       });
       setSelectedMaterials([]);
+      setShelfInput("");
     } catch (error) {
       console.error("Error creating party:", error);
       alert("Errore nella creazione della festa");
@@ -188,15 +148,15 @@ export default function PartiesPage() {
         ? party.shelves.split(",").map((s) => Number.parseInt(s.trim()))
         : [],
     });
-    setShowFormModal(true);
+    setShowEditForm(true);
   };
 
   const handleUpdateParty = async (e) => {
     e.preventDefault();
     try {
       await updateParty(editParty.id, editParty);
-      mutate();
-      setShowFormModal(false);
+      mutate(); // Revalidate SWR cache
+      setShowEditForm(false);
       setEditParty(null);
     } catch (error) {
       console.error("Error updating party:", error);
@@ -208,7 +168,7 @@ export default function PartiesPage() {
     try {
       await assignMaterial(selectedParty.id, macroId);
       await loadPartyMaterialsData(selectedParty.id);
-      mutate();
+      mutate(); // Revalidate SWR cache
     } catch (error) {
       console.error("Error assigning material:", error);
       alert("Errore nell'assegnazione del materiale");
@@ -219,7 +179,7 @@ export default function PartiesPage() {
     try {
       await removeMaterial(selectedParty.id, macroId);
       await loadPartyMaterialsData(selectedParty.id);
-      mutate();
+      mutate(); // Revalidate SWR cache
     } catch (error) {
       console.error("Error removing material:", error);
       alert("Errore nella rimozione del materiale");
@@ -231,8 +191,7 @@ export default function PartiesPage() {
 
     try {
       await deleteParty(partyId);
-      await cacheManager.deletePartyFromCache(partyId);
-      mutate();
+      mutate(); // Revalidate SWR cache
     } catch (error) {
       console.error("Error deleting party:", error);
       alert("Errore nell'eliminazione della festa");
@@ -251,6 +210,42 @@ export default function PartiesPage() {
         ? prev.filter((id) => id !== materialId)
         : [...prev, materialId]
     );
+  };
+
+  const addShelf = () => {
+    const shelfNumber = Number.parseInt(shelfInput);
+    if (shelfNumber && !newParty.shelves.includes(shelfNumber)) {
+      setNewParty((prev) => ({
+        ...prev,
+        shelves: [...prev.shelves, shelfNumber].sort((a, b) => a - b),
+      }));
+      setShelfInput("");
+    }
+  };
+
+  const addShelfToEdit = () => {
+    const shelfNumber = Number.parseInt(shelfInput);
+    if (shelfNumber && !editParty.shelves.includes(shelfNumber)) {
+      setEditParty((prev) => ({
+        ...prev,
+        shelves: [...prev.shelves, shelfNumber].sort((a, b) => a - b),
+      }));
+      setShelfInput("");
+    }
+  };
+
+  const removeShelf = (shelfToRemove) => {
+    setNewParty((prev) => ({
+      ...prev,
+      shelves: prev.shelves.filter((shelf) => shelf !== shelfToRemove),
+    }));
+  };
+
+  const removeShelfFromEdit = (shelfToRemove) => {
+    setEditParty((prev) => ({
+      ...prev,
+      shelves: prev.shelves.filter((shelf) => shelf !== shelfToRemove),
+    }));
   };
 
   const filteredParties = parties.filter((party) => {
@@ -278,9 +273,7 @@ export default function PartiesPage() {
     );
   };
 
-  const isOfflineWithData = error && !isLoading && parties.length > 0;
-
-  if (isLoading && !parties.length) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-surface">
         <Navbar />
@@ -296,15 +289,13 @@ export default function PartiesPage() {
     );
   }
 
-  if (error && !isOfflineWithData) {
+  if (error) {
     return (
       <div className="min-h-screen bg-surface">
         <Navbar />
         <main className="containerMod py-8">
           <div className="text-center text-danger">
-            {navigator.onLine
-              ? "Errore nel caricamento dei dati"
-              : "Offline - nessun dato in cache"}
+            Errore nel caricamento dei dati
           </div>
         </main>
       </div>
@@ -316,13 +307,6 @@ export default function PartiesPage() {
       <Navbar />
 
       <main className="containerMod py-8">
-        {isOfflineWithData && (
-          <div className="mb-4 p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-yellow-800">
-            📡 Modalità offline - visualizzando dati salvati. I dati verranno
-            sincronizzati quando torna la connessione.
-          </div>
-        )}
-
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -339,21 +323,7 @@ export default function PartiesPage() {
               </p>
             </div>
             <button
-              onClick={() => {
-                setEditParty(null);
-                setNewParty({
-                  nome: "",
-                  data: "",
-                  luogo: "",
-                  animatore_id: "",
-                  magazziniere_id: "",
-                  stato: "iniziale",
-                  note: "",
-                  shelves: [],
-                });
-                setSelectedMaterials([]);
-                setShowFormModal(true);
-              }}
+              onClick={() => setShowAddForm(true)}
               className="btn-primary flex items-center space-x-2"
             >
               <Plus className="w-4 h-4" />
@@ -403,7 +373,18 @@ export default function PartiesPage() {
 
           {/* Parties List */}
           <div className="grid gap-6">
-            {filteredParties.length > 0 ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Caricamento feste...</p>
+                </div>
+              </div>
+            ) : error ? (
+              <div className="text-center text-danger">
+                Errore nel caricamento dei dati
+              </div>
+            ) : (
               filteredParties.map((party) => (
                 <PartyCard
                   key={party.id}
@@ -416,59 +397,66 @@ export default function PartiesPage() {
                   getStatusIcon={getStatusIcon}
                 />
               ))
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground">Nessuna festa trovata</p>
-              </div>
             )}
           </div>
 
+          {/* Add/Edit Party Modal */}
           <PartyFormModal
-            isOpen={showFormModal}
-            isEdit={editParty !== null}
-            party={editParty || newParty}
-            onPartyChange={(updatedParty) => {
-              if (editParty) {
-                setEditParty(updatedParty);
-              } else {
-                setNewParty(updatedParty);
-              }
-            }}
+            isOpen={showAddForm}
+            isEdit={false}
+            party={newParty}
+            onPartyChange={setNewParty}
             users={users}
             macroCategories={macroCategories}
             selectedMaterials={selectedMaterials}
             onMaterialToggle={toggleMaterialSelection}
-            onAddShelf={(shelf) => {
-              if (editParty) {
-                setEditParty((prev) => ({
-                  ...prev,
-                  shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
-                }));
-              } else {
-                setNewParty((prev) => ({
-                  ...prev,
-                  shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
-                }));
-              }
-            }}
-            onRemoveShelf={(shelf) => {
-              if (editParty) {
-                setEditParty((prev) => ({
-                  ...prev,
-                  shelves: prev.shelves.filter((s) => s !== shelf),
-                }));
-              } else {
-                setNewParty((prev) => ({
-                  ...prev,
-                  shelves: prev.shelves.filter((s) => s !== shelf),
-                }));
-              }
-            }}
-            onSubmit={editParty ? handleUpdateParty : handleAddParty}
+            onAddShelf={(shelf) =>
+              setNewParty((prev) => ({
+                ...prev,
+                shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
+              }))
+            }
+            onRemoveShelf={(shelf) =>
+              setNewParty((prev) => ({
+                ...prev,
+                shelves: prev.shelves.filter((s) => s !== shelf),
+              }))
+            }
+            onSubmit={handleAddParty}
             onCancel={() => {
-              setShowFormModal(false);
-              setEditParty(null);
+              setShowAddForm(false);
               setSelectedMaterials([]);
+            }}
+            allParties={parties}
+          />
+
+          <PartyFormModal
+            isOpen={showEditForm}
+            isEdit={true}
+            party={editParty}
+            onPartyChange={setEditParty}
+            users={users}
+            macroCategories={macroCategories}
+            selectedMaterials={selectedMaterials}
+            onMaterialToggle={toggleMaterialSelection}
+            onAddShelf={(shelf) =>
+              editParty &&
+              setEditParty((prev) => ({
+                ...prev,
+                shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
+              }))
+            }
+            onRemoveShelf={(shelf) =>
+              editParty &&
+              setEditParty((prev) => ({
+                ...prev,
+                shelves: prev.shelves.filter((s) => s !== shelf),
+              }))
+            }
+            onSubmit={handleUpdateParty}
+            onCancel={() => {
+              setShowEditForm(false);
+              setEditParty(null);
             }}
             allParties={parties}
           />

@@ -24,15 +24,15 @@
     ],
     "screenshots": [
         {
-            "src": "/screenshot-540.png",
+            "src": "/logo.avif",
             "sizes": "540x720",
-            "type": "image/png",
+            "type": "image/avif",
             "form_factor": "narrow"
         },
         {
-            "src": "/screenshot-1280.png",
+            "src": "/logo.avif",
             "sizes": "1280x720",
-            "type": "image/png",
+            "type": "image/avif",
             "form_factor": "wide"
         }
     ],

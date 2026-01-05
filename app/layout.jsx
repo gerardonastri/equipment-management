@@ -26,7 +26,7 @@ export default function RootLayout({ children }) {
 
       <body className="min-h-screen bg-surface antialiased">
         <SWRProvider>{children}</SWRProvider>
-        {children}
+        {/* {children} */}
       </body>
     </html>
   );

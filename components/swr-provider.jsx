@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { IndexedDBCacheProvider } from "@/lib/cache/swr-cache-provider";
 
 let cacheProvider = null;
+let swRegistered = false;
 
 function getCacheProvider() {
   if (!cacheProvider) {
@@ -15,18 +16,23 @@ function getCacheProvider() {
 
 export default function SWRProvider({ children }) {
   const [isReady, setIsReady] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
 
   useEffect(() => {
-    // Registra il service worker
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && !swRegistered) {
+      swRegistered = true;
       navigator.serviceWorker
-        .register("/sw.js")
+        .register("/sw.js", { scope: "/" })
         .then((reg) => {
           console.log("[v0] Service Worker registrato:", reg);
         })
         .catch((err) => {
-          console.error("[v0] Errore registrazione SW:", err);
+          console.warn(
+            "[v0] Errore registrazione SW (ignorato - usando comunque cache IndexedDB):",
+            err.message
+          );
         });
     }
 
@@ -73,18 +79,10 @@ export default function SWRProvider({ children }) {
       value={{
         revalidateOnFocus: false,
         revalidateOnReconnect: true,
-        dedupingInterval: 60000, // 1 minuto
-        focusThrottleInterval: 300000, // 5 minuti
+        dedupingInterval: 60000,
+        focusThrottleInterval: 300000,
         errorRetryCount: 3,
         errorRetryInterval: 5000,
-        // Mostra indicatore online/offline
-        onError: (error, key) => {
-          if (!navigator.onLine) {
-            console.log("[v0] Offline - tentando con cache per:", key);
-          } else {
-            console.error("[v0] Errore SWR:", error);
-          }
-        },
       }}
     >
       {!isOnline && (
