@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, use } from "react"; // 'use' è fondamentale per Next.js 15+
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle,
@@ -16,6 +16,7 @@ import {
   Clock,
   AlertCircle,
   Lock,
+  Wifi,
 } from "lucide-react";
 import useSWR from "swr";
 import {
@@ -24,6 +25,7 @@ import {
   submitCheck,
 } from "@/app/actions/check-actions";
 
+// --- FETCHER SWR ---
 const fetcher = async (shelfId) => {
   const result = await getPartyDataForShelf(shelfId);
   if (result.error) {
@@ -33,6 +35,11 @@ const fetcher = async (shelfId) => {
 };
 
 export default function CheckPage({ params }) {
+  // --- 1. GESTIONE PARAMETRI ASINCRONI (NEXT.JS 15+) ---
+  const resolvedParams = use(params);
+  const shelfId = resolvedParams.shelfId;
+
+  // --- 2. STATI ---
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginData, setLoginData] = useState({ name: "", code: "" });
@@ -42,19 +49,16 @@ export default function CheckPage({ params }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
-  const [shelfId, setShelfId] = useState(null);
+
+  // Stati logici
   const [isCheckCompleted, setIsCheckCompleted] = useState(false);
   const [materialSmarrito, setMaterialSmarrito] = useState(false);
   const [userRole, setUserRole] = useState(null);
 
-  useEffect(() => {
-    const resolveParams = async () => {
-      const resolvedParams = await params;
-      setShelfId(resolvedParams.shelfId);
-    };
-    resolveParams();
-  }, [params]);
+  // Stato per notifica NFC
+  const [lastScannedMessage, setLastScannedMessage] = useState(null);
 
+  // --- 3. DATI (SWR) ---
   const {
     data,
     error: partyError,
@@ -70,10 +74,91 @@ export default function CheckPage({ params }) {
   );
 
   const partyData = data?.party;
-  // Assicuriamoci che sia sempre un array
   const existingChecks = data?.checks || [];
   const materialData = data?.materialHierarchy || [];
 
+  // --- 4. LOGICA NFC (TAB RELAY LISTENER) ---
+  useEffect(() => {
+    // Creiamo il canale di ascolto
+    const channel = new BroadcastChannel("nfc_scan_channel");
+
+    channel.onmessage = (event) => {
+      // Quando la pagina /t/[id] invia un messaggio
+      if (event.data && event.data.type === "TAG_SCANNED") {
+        const scannedId = event.data.itemId;
+        console.log("📡 NFC Rilevato:", scannedId);
+        handleNfcMatch(scannedId);
+      }
+    };
+
+    return () => {
+      channel.close();
+    };
+  }, [materialData]); // Dipendenza fondamentale: ricarica il listener se i dati cambiano
+
+  // Funzione che cerca l'ID scansionato nella lista e mette la spunta
+  const handleNfcMatch = (scannedId) => {
+    if (!materialData || materialData.length === 0) return;
+
+    let itemFound = false;
+    let itemName = "";
+
+    // Loop annidato per trovare l'oggetto
+    for (const macro of materialData) {
+      for (const cat of macro.categories) {
+        // Cerchiamo tra gli items
+        const item = cat.items.find((i) => i.id === scannedId);
+
+        if (item) {
+          itemFound = true;
+          itemName = item.name;
+
+          // Controllo oggetti problematici
+          if (item.materiale_mancante) {
+            alert(
+              `⚠️ ATTENZIONE: ${itemName} è segnalato come MANCANTE nel sistema!`
+            );
+            return;
+          }
+
+          // Costruiamo la chiave univoca
+          const itemKey = `${macro.id}-${cat.id}-${item.id}`;
+
+          // Aggiorniamo lo stato
+          setCheckedItems((prev) => {
+            // Vibrazione feedback (solo se nuova spunta)
+            if (
+              !prev[itemKey] &&
+              typeof navigator !== "undefined" &&
+              navigator.vibrate
+            ) {
+              navigator.vibrate([100, 50, 100]);
+            }
+            return {
+              ...prev,
+              [itemKey]: true,
+            };
+          });
+
+          break; // Trovato, esci dal loop categorie
+        }
+      }
+      if (itemFound) break; // Trovato, esci dal loop macro
+    }
+
+    // Feedback visivo (Toast)
+    if (itemFound) {
+      setLastScannedMessage(`${itemName} verificato!`);
+      // Rimuovi messaggio dopo 3 sec
+      setTimeout(() => setLastScannedMessage(null), 3000);
+    } else {
+      // Opzionale: gestire scansioni di oggetti non presenti
+      // console.warn("Oggetto scansionato non appartiene a questa lista");
+    }
+  };
+  // ------------------------------------------
+
+  // --- 5. EFFETTI LOGICI ---
   useEffect(() => {
     if (checkType && existingChecks.length > 0) {
       const isCompleted = existingChecks.some(
@@ -93,7 +178,7 @@ export default function CheckPage({ params }) {
     }
   }, []);
 
-  // Ordine rigoroso delle fasi
+  // --- 6. CONFIGURAZIONE TIPI CHECK ---
   const checkTypes = [
     {
       id: "deposito_scaffale",
@@ -125,6 +210,7 @@ export default function CheckPage({ params }) {
     },
   ];
 
+  // --- 7. HANDLERS UTENTE ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -217,6 +303,7 @@ export default function CheckPage({ params }) {
     }
   };
 
+  // --- 8. HELPER FUNCTIONS ---
   const getTotalItems = () => {
     let total = 0;
     if (!materialData || !Array.isArray(materialData)) return 0;
@@ -307,7 +394,7 @@ export default function CheckPage({ params }) {
     );
   };
 
-  // --- RENDERING ---
+  // --- 9. RENDER CONDIZIONALE ---
 
   if (!shelfId) {
     return (
@@ -522,13 +609,11 @@ export default function CheckPage({ params }) {
                 {checkTypes.map((type, index) => {
                   const Icon = type.icon;
 
-                  // 1. Controllo se questo check è già stato fatto
                   const isCompleted = existingChecks.some(
                     (check) => check.type === type.id
                   );
 
-                  // 2. Controllo se la fase precedente è stata fatta
-                  let isPreviousCompleted = true; // Default true per il primo elemento
+                  let isPreviousCompleted = true;
                   if (index > 0) {
                     const previousType = checkTypes[index - 1];
                     isPreviousCompleted = existingChecks.some(
@@ -536,26 +621,17 @@ export default function CheckPage({ params }) {
                     );
                   }
 
-                  // 3. Controllo se il ruolo è permesso
                   const isRoleAllowed = type.allowedRoles.includes(userRole);
 
-                  // DEBUG LOGIC (Controlla la console del browser se non vedi i lucchetti)
                   console.log(`Check: ${type.id}`, {
                     isCompleted,
                     isPreviousCompleted,
                     isRoleAllowed,
-                    adminOverride: false, // Nessun override per admin sulla sequenza
                   });
 
-                  // Determina se il bottone deve essere disabilitato
-                  // È disabilitato se:
-                  // - È già fatto (isCompleted)
-                  // - OPPURE la fase precedente NON è fatta (!isPreviousCompleted) -> QUESTO VINCE SUL RUOLO
-                  // - OPPURE non ho il ruolo (!isRoleAllowed)
                   const isDisabled =
                     isCompleted || !isPreviousCompleted || !isRoleAllowed;
 
-                  // Messaggio di stato
                   let statusMessage = "";
                   let statusColor = "text-muted-foreground";
 
@@ -585,7 +661,7 @@ export default function CheckPage({ params }) {
                         isCompleted
                           ? "opacity-60 bg-green-50 border-green-200 cursor-not-allowed"
                           : !isPreviousCompleted
-                          ? "opacity-60 bg-gray-100 border-gray-200 grayscale cursor-not-allowed" // Stile più forte per il blocco sequenziale
+                          ? "opacity-60 bg-gray-100 border-gray-200 grayscale cursor-not-allowed"
                           : !isRoleAllowed
                           ? "opacity-50 cursor-not-allowed"
                           : "card-hover cursor-pointer"
@@ -593,7 +669,6 @@ export default function CheckPage({ params }) {
                     >
                       <div className="flex items-center space-x-4">
                         <div className="w-12 h-12 bg-surface rounded-lg flex items-center justify-center shrink-0">
-                          {/* Logica icona: Se bloccato per sequenza, mostra Lucchetto */}
                           {!isPreviousCompleted && !isCompleted ? (
                             <Lock className="w-6 h-6 text-gray-500" />
                           ) : (
@@ -624,8 +699,7 @@ export default function CheckPage({ params }) {
     );
   }
 
-  // --- RESTO DEL COMPONENTE (Check completato / Form) ---
-
+  // --- COMPONENTE CHECK COMPLETATO ---
   if (isCheckCompleted) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -655,15 +729,17 @@ export default function CheckPage({ params }) {
     );
   }
 
+  // --- PAGINA CHECK PRINCIPALE (RENDER LISTA) ---
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-surface pb-20">
       <div className="containerMod py-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="max-w-4xl mx-auto"
         >
-          <div className="flex items-center justify-between mb-6">
+          {/* HEADER */}
+          <div className="flex items-center justify-between mb-6 sticky top-0 z-10 bg-surface py-2 backdrop-blur-sm bg-opacity-90">
             <button
               onClick={() => setCheckType("")}
               className="flex items-center space-x-2 text-muted-foreground hover:text-foreground"
@@ -677,12 +753,29 @@ export default function CheckPage({ params }) {
                 Utente: {currentUser.nome}
               </p>
               <p className="text-sm text-muted-foreground">Ruolo: {userRole}</p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground font-semibold">
                 {checkTypes.find((t) => t.id === checkType)?.name}
               </p>
             </div>
           </div>
 
+          {/* --- NOTIFICA TOAST NFC --- */}
+          <AnimatePresence>
+            {lastScannedMessage && (
+              <motion.div
+                initial={{ opacity: 0, y: -50, x: "-50%" }}
+                animate={{ opacity: 1, y: 0, x: "-50%" }}
+                exit={{ opacity: 0, y: -50, x: "-50%" }}
+                className="fixed top-20 left-1/2 z-50 bg-green-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-3"
+              >
+                <Wifi className="w-6 h-6 animate-pulse" />
+                <span className="font-bold text-lg">{lastScannedMessage}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {/* ------------------------- */}
+
+          {/* PROGRESS BAR */}
           <div className="bg-card p-6 rounded-xl border border-border mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-foreground">
@@ -701,6 +794,7 @@ export default function CheckPage({ params }) {
             </div>
           </div>
 
+          {/* LISTA MACRO CATEGORIE */}
           <div className="space-y-6">
             {materialData.map((macro) => (
               <motion.div
@@ -816,6 +910,7 @@ export default function CheckPage({ params }) {
             ))}
           </div>
 
+          {/* CHECKBOX SMARRITO */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -837,6 +932,7 @@ export default function CheckPage({ params }) {
             </p>
           </motion.div>
 
+          {/* BOTTONE INVIO */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
