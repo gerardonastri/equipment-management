@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Lock,
   Wifi,
+  ScanLine, // Aggiunta icona per feedback visivo
 } from "lucide-react";
 import useSWR from "swr";
 import {
@@ -79,7 +80,7 @@ export default function CheckPage({ params }) {
 
   // --- 4. LOGICA NFC (TAB RELAY LISTENER) ---
   useEffect(() => {
-    // Creiamo il canale di ascolto
+    // Creiamo il canale di ascolto "walkie-talkie"
     const channel = new BroadcastChannel("nfc_scan_channel");
 
     channel.onmessage = (event) => {
@@ -94,9 +95,9 @@ export default function CheckPage({ params }) {
     return () => {
       channel.close();
     };
-  }, [materialData]); // Dipendenza fondamentale: ricarica il listener se i dati cambiano
+  }, [materialData]); // Ricarica il listener se i dati cambiano
 
-  // Funzione che cerca l'ID scansionato nella lista e mette la spunta
+  // Funzione che cerca l'ID scansionato nella lista e mette la spunta AUTOMATICAMENTE
   const handleNfcMatch = (scannedId) => {
     if (!materialData || materialData.length === 0) return;
 
@@ -124,7 +125,7 @@ export default function CheckPage({ params }) {
           // Costruiamo la chiave univoca
           const itemKey = `${macro.id}-${cat.id}-${item.id}`;
 
-          // Aggiorniamo lo stato
+          // Aggiorniamo lo stato (QUESTO È L'UNICO MODO PER SPUNTARE)
           setCheckedItems((prev) => {
             // Vibrazione feedback (solo se nuova spunta)
             if (
@@ -140,20 +141,16 @@ export default function CheckPage({ params }) {
             };
           });
 
-          break; // Trovato, esci dal loop categorie
+          break;
         }
       }
-      if (itemFound) break; // Trovato, esci dal loop macro
+      if (itemFound) break;
     }
 
     // Feedback visivo (Toast)
     if (itemFound) {
       setLastScannedMessage(`${itemName} verificato!`);
-      // Rimuovi messaggio dopo 3 sec
       setTimeout(() => setLastScannedMessage(null), 3000);
-    } else {
-      // Opzionale: gestire scansioni di oggetti non presenti
-      // console.warn("Oggetto scansionato non appartiene a questa lista");
     }
   };
   // ------------------------------------------
@@ -178,7 +175,6 @@ export default function CheckPage({ params }) {
     }
   }, []);
 
-  // --- 6. CONFIGURAZIONE TIPI CHECK ---
   const checkTypes = [
     {
       id: "deposito_scaffale",
@@ -241,28 +237,27 @@ export default function CheckPage({ params }) {
     }
   };
 
+  // --- BLOCCO CHECK MANUALE ---
+  // Queste funzioni ora mostrano solo un alert invece di modificare lo stato
   const handleItemCheck = (macroId, categoryId, itemId) => {
-    const itemKey = `${macroId}-${categoryId}-${itemId}`;
-    setCheckedItems((prev) => ({
-      ...prev,
-      [itemKey]: !prev[itemKey],
-    }));
+    alert(
+      "🔒 Check Manuale Disabilitato.\nAvvicina il telefono al Tag NFC dell'oggetto per confermarlo."
+    );
   };
 
   const handleCategoryCheck = (macroId, categoryId) => {
-    const categoryKey = `${macroId}-${categoryId}`;
-    setCheckedItems((prev) => ({
-      ...prev,
-      [categoryKey]: !prev[categoryKey],
-    }));
+    alert(
+      "🔒 Check Manuale Disabilitato.\nDevi scansionare i singoli oggetti."
+    );
   };
+  // -----------------------------
 
   const handleSubmitCheck = async () => {
     if (!partyData || !currentUser || !shelfId) return;
 
     if (!isAllItemsChecked() && !materialSmarrito) {
       alert(
-        "Devi completare tutti gli elementi o spuntare 'materiale smarrito'"
+        "Devi scansionare tutti gli elementi o spuntare 'materiale smarrito' per procedere."
       );
       return;
     }
@@ -394,6 +389,7 @@ export default function CheckPage({ params }) {
     );
   };
 
+  console.log(materialData);
   // --- 9. RENDER CONDIZIONALE ---
 
   if (!shelfId) {
@@ -555,7 +551,7 @@ export default function CheckPage({ params }) {
     );
   }
 
-  // --- SELETTORE CHECK CON LOGICA PROPEDEUTICA RINFORZATA ---
+  // --- SELETTORE CHECK ---
   if (!checkType) {
     return (
       <div className="min-h-screen bg-surface">
@@ -622,12 +618,6 @@ export default function CheckPage({ params }) {
                   }
 
                   const isRoleAllowed = type.allowedRoles.includes(userRole);
-
-                  console.log(`Check: ${type.id}`, {
-                    isCompleted,
-                    isPreviousCompleted,
-                    isRoleAllowed,
-                  });
 
                   const isDisabled =
                     isCompleted || !isPreviousCompleted || !isRoleAllowed;
@@ -699,7 +689,7 @@ export default function CheckPage({ params }) {
     );
   }
 
-  // --- COMPONENTE CHECK COMPLETATO ---
+  // --- CHECK COMPLETATO ---
   if (isCheckCompleted) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -729,7 +719,7 @@ export default function CheckPage({ params }) {
     );
   }
 
-  // --- PAGINA CHECK PRINCIPALE (RENDER LISTA) ---
+  // --- LISTA ITEMS (MAIN) ---
   return (
     <div className="min-h-screen bg-surface pb-20">
       <div className="containerMod py-8">
@@ -827,14 +817,14 @@ export default function CheckPage({ params }) {
 
                             return (
                               <motion.button
-                                whileTap={{ scale: isDisabled ? 1 : 0.98 }}
+                                whileTap={{ scale: 0.98 }}
                                 onClick={() =>
                                   handleCategoryCheck(macro.id, category.id)
                                 }
-                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-default ${
                                   isChecked
                                     ? "bg-green-50 border-green-200 text-green-800"
-                                    : "bg-surface border-border text-foreground hover:bg-card"
+                                    : "bg-surface border-border text-foreground"
                                 }`}
                               >
                                 {isDisabled ? (
@@ -842,7 +832,7 @@ export default function CheckPage({ params }) {
                                 ) : isChecked ? (
                                   <CheckCircle className="w-5 h-5 text-green-600" />
                                 ) : (
-                                  <Circle className="w-5 h-5 text-muted-foreground" />
+                                  <ScanLine className="w-5 h-5 text-muted-foreground opacity-50" />
                                 )}
                                 <span className="text-sm font-medium">
                                   Categoria completa
@@ -866,7 +856,7 @@ export default function CheckPage({ params }) {
                             return (
                               <motion.button
                                 key={item.id}
-                                whileTap={{ scale: isDisabled ? 1 : 0.98 }}
+                                whileTap={{ scale: 0.98 }}
                                 onClick={() =>
                                   handleItemCheck(
                                     macro.id,
@@ -874,13 +864,12 @@ export default function CheckPage({ params }) {
                                     item.id
                                   )
                                 }
-                                disabled={isDisabled}
-                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-default ${
                                   isDisabled
                                     ? "opacity-50 cursor-not-allowed bg-gray-100 border-gray-200"
                                     : isChecked
                                     ? "bg-green-50 border-green-200 text-green-800"
-                                    : "bg-surface border-border text-foreground hover:bg-card"
+                                    : "bg-surface border-border text-foreground hover:bg-gray-50"
                                 }`}
                               >
                                 {isDisabled ? (
@@ -888,7 +877,7 @@ export default function CheckPage({ params }) {
                                 ) : isChecked ? (
                                   <CheckCircle className="w-5 h-5 text-green-600" />
                                 ) : (
-                                  <Circle className="w-5 h-5 text-muted-foreground" />
+                                  <ScanLine className="w-5 h-5 text-muted-foreground opacity-50" />
                                 )}
                                 <span className="text-sm font-medium flex-1 text-left">
                                   {item.name}
@@ -914,21 +903,22 @@ export default function CheckPage({ params }) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="sticky bottom-20 mt-8 bg-card p-6 rounded-xl border border-border"
+            className="sticky bottom-20 mt-8 bg-card p-6 rounded-xl border border-border shadow-lg"
           >
             <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={materialSmarrito}
                 onChange={(e) => setMaterialSmarrito(e.target.checked)}
-                className="w-5 h-5 rounded border-border"
+                className="w-6 h-6 rounded border-border text-primary focus:ring-primary"
               />
-              <span className="font-medium text-foreground">
-                Materiale Smarrito
+              <span className="font-bold text-foreground">
+                Materiale Smarrito / Danneggiato
               </span>
             </label>
-            <p className="text-sm text-muted-foreground mt-2">
-              Spunta se il materiale è stato smarrito durante il check
+            <p className="text-sm text-muted-foreground mt-2 pl-9">
+              Spunta questa casella solo se hai scansionato tutto il possibile e
+              manca qualcosa.
             </p>
           </motion.div>
 
@@ -943,10 +933,10 @@ export default function CheckPage({ params }) {
               disabled={
                 isSubmitting || (!isAllItemsChecked() && !materialSmarrito)
               }
-              className={`w-full py-4 rounded-xl font-semibold text-white transition-all ${
+              className={`w-full py-4 rounded-xl font-semibold text-white transition-all shadow-xl ${
                 isSubmitting || (!isAllItemsChecked() && !materialSmarrito)
                   ? "bg-muted cursor-not-allowed"
-                  : "btn-primary"
+                  : "btn-primary transform hover:scale-[1.02]"
               }`}
             >
               {isSubmitting ? (
