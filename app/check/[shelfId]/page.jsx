@@ -247,12 +247,37 @@ export default function CheckPage({ params }) {
   };
 
   const handleCategoryCheck = (macroId, categoryId) => {
-    const categoryKey = `${macroId}-${categoryId}`;
-    setCheckedItems((prev) => ({
-      ...prev,
-      [categoryKey]: !prev[categoryKey],
-    }));
-  };
+  const macro = materialData.find((m) => m.id === macroId);
+  if (!macro) return;
+
+  const category = macro.categories.find((c) => c.id === categoryId);
+  if (!category) return;
+
+  setCheckedItems((prev) => {
+    const updated = { ...prev };
+
+    // Caso: categoria senza items
+    if (category.items.length === 0) {
+      const categoryKey = `${macroId}-${categoryId}`;
+      updated[categoryKey] = !prev[categoryKey];
+      return updated;
+    }
+
+    // Caso: categoria con items
+    const allChecked = category.items.every(
+      (item) => prev[`${macroId}-${categoryId}-${item.id}`]
+    );
+
+    category.items.forEach((item) => {
+      if (!item.materiale_mancante) {
+        const itemKey = `${macroId}-${categoryId}-${item.id}`;
+        updated[itemKey] = !allChecked;
+      }
+    });
+
+    return updated;
+  });
+};
 
   const handleSubmitCheck = async () => {
     if (!partyData || !currentUser || !shelfId) return;
