@@ -35,6 +35,10 @@ const fetcher = async (shelfId) => {
   return result;
 };
 
+// Fasi in cui è permesso scansionare la categoria per spuntare tutti i sotto-elementi
+// (fasi 2 e 3: carico/scarico furgone, tipicamente gestite dall'animatore)
+const FASI_CATEGORIA_CONSENTITA = ["scaffale_furgone", "furgone_scaffale"];
+
 export default function CheckPage({ params }) {
   const resolvedParams = use(params);
   const shelfId = resolvedParams.shelfId;
@@ -87,16 +91,21 @@ export default function CheckPage({ params }) {
     return () => {
       channel.close();
     };
-  }, [materialData]);
+  }, [materialData, checkType]); // checkType incluso perché influenza la logica
 
   /**
-   * Quando arriva un tag NFC, cerca l'ID in tutta la gerarchia:
-   * - Se corrisponde a un sotto-elemento (item): spunta solo quell'item
-   * - Se corrisponde a una categoria: spunta tutti i sotto-elementi di quella categoria
-   *   (oppure la chiave-categoria stessa se non ha sotto-elementi)
+   * Regola principale:
+   * - Fasi 1 e 4 (deposito_scaffale, scaffale_deposito):
+   *     → scan NFC su categoria CON sotto-elementi NON è permesso.
+   *       Il magazziniere deve scansionare ogni sotto-elemento singolarmente.
+   *     → scan NFC su categoria SENZA sotto-elementi è sempre permesso.
+   * - Fasi 2 e 3 (scaffale_furgone, furgone_scaffale):
+   *     → scan NFC su categoria spunta automaticamente tutti i sotto-elementi.
    */
   const handleNfcMatch = (scannedId) => {
     if (!materialData || materialData.length === 0) return;
+
+    const categoriaConsentita = FASI_CATEGORIA_CONSENTITA.includes(checkType);
 
     let found = false;
     let foundName = "";
@@ -138,6 +147,16 @@ export default function CheckPage({ params }) {
             return;
           }
 
+          const hasItems = category.items && category.items.length > 0;
+
+          // Se la categoria ha sotto-elementi e siamo in fase 1 o 4 → non consentito
+          if (hasItems && !categoriaConsentita) {
+            alert(
+              `⛔ In questa fase devi scansionare ogni elemento singolarmente.\nScannerizza i singoli oggetti della categoria "${category.name}".`
+            );
+            return;
+          }
+
           if (typeof navigator !== "undefined" && navigator.vibrate) {
             navigator.vibrate([100, 50, 100]);
           }
@@ -145,11 +164,11 @@ export default function CheckPage({ params }) {
           setCheckedItems((prev) => {
             const updated = { ...prev };
 
-            if (category.items.length === 0) {
+            if (!hasItems) {
               // Nessun sotto-elemento: usa chiave categoria
               updated[`${macro.id}-${category.id}`] = true;
             } else {
-              // Spunta tutti i sotto-elementi non mancanti
+              // Fasi 2 e 3: spunta tutti i sotto-elementi non mancanti
               category.items.forEach((item) => {
                 if (!item.materiale_mancante) {
                   updated[`${macro.id}-${category.id}-${item.id}`] = true;
@@ -302,7 +321,6 @@ export default function CheckPage({ params }) {
       if (!macro.categories) return;
       macro.categories.forEach((category) => {
         if (!category.items || category.items.length === 0) {
-          // Categoria senza sotto-elementi conta come 1
           total += 1;
         } else {
           total += category.items.filter((item) => !item.materiale_mancante).length;
@@ -646,6 +664,9 @@ export default function CheckPage({ params }) {
   }
 
   // --- LISTA ITEMS (MAIN) ---
+  // In fasi 1 e 4 la categoria con sotto-elementi NON può essere scansionata direttamente
+  const categoriaConsentita = FASI_CATEGORIA_CONSENTITA.includes(checkType);
+
   return (
     <div className="min-h-screen bg-surface pb-20">
       <div className="containerMod py-8">
@@ -723,6 +744,9 @@ export default function CheckPage({ params }) {
                 <div className="space-y-4">
                   {macro.categories.map((category) => {
                     const catChecked = isCategoryChecked(macro, category);
+                    const hasItems = category.items && category.items.length > 0;
+                    // In fasi 1/4 con sotto-elementi: la categoria non è scansionabile direttamente
+                    const categoryIsBlocked = hasItems && !categoriaConsentita;
 
                     return (
                       <div key={category.id} className="border border-border rounded-lg p-4">
@@ -740,6 +764,18 @@ export default function CheckPage({ params }) {
                           >
                             {category.name}
                           </h4>
+                          {/* Badge informativo sulla modalità di scan */}
+                          {hasItems && (
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded ml-1 ${
+                                categoriaConsentita
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {categoriaConsentita ? "Scan categoria ✓" : "Scan singoli elementi"}
+                            </span>
+                          )}
                           {category.materiale_mancante && (
                             <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded ml-auto">
                               Mancante
@@ -747,8 +783,8 @@ export default function CheckPage({ params }) {
                           )}
                         </div>
 
-                        {/* Categoria senza sotto-elementi */}
-                        {(!category.items || category.items.length === 0) ? (
+                        {/* Categoria senza sotto-elementi → sempre scansionabile direttamente */}
+                        {!hasItems ? (
                           <div
                             className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
                               category.materiale_mancante
