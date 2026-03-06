@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react"; // 'use' è fondamentale per Next.js 15+
+import { useState, useEffect, use } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
@@ -17,7 +17,7 @@ import {
   AlertCircle,
   Lock,
   Wifi,
-  ScanLine, // Aggiunta icona per feedback visivo
+  ScanLine,
 } from "lucide-react";
 import useSWR from "swr";
 import {
@@ -25,7 +25,6 @@ import {
   authenticateUser,
   submitCheck,
 } from "@/app/actions/check-actions";
-
 
 // --- FETCHER SWR ---
 const fetcher = async (shelfId) => {
@@ -37,11 +36,9 @@ const fetcher = async (shelfId) => {
 };
 
 export default function CheckPage({ params }) {
-  // --- 1. GESTIONE PARAMETRI ASINCRONI (NEXT.JS 15+) ---
   const resolvedParams = use(params);
   const shelfId = resolvedParams.shelfId;
 
-  // --- 2. STATI ---
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginData, setLoginData] = useState({ name: "", code: "" });
@@ -51,16 +48,12 @@ export default function CheckPage({ params }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
-
-  // Stati logici
   const [isCheckCompleted, setIsCheckCompleted] = useState(false);
   const [materialSmarrito, setMaterialSmarrito] = useState(false);
   const [userRole, setUserRole] = useState(null);
-
-  // Stato per notifica NFC
   const [lastScannedMessage, setLastScannedMessage] = useState(null);
 
-  // --- 3. DATI (SWR) ---
+  // --- DATI (SWR) ---
   const {
     data,
     error: partyError,
@@ -79,13 +72,11 @@ export default function CheckPage({ params }) {
   const existingChecks = data?.checks || [];
   const materialData = data?.materialHierarchy || [];
 
-  // --- 4. LOGICA NFC (TAB RELAY LISTENER) ---
+  // --- NFC BROADCAST LISTENER ---
   useEffect(() => {
-    // Creiamo il canale di ascolto "walkie-talkie"
     const channel = new BroadcastChannel("nfc_scan_channel");
 
     channel.onmessage = (event) => {
-      // Quando la pagina /t/[id] invia un messaggio
       if (event.data && event.data.type === "TAG_SCANNED") {
         const scannedId = event.data.itemId;
         console.log("📡 NFC Rilevato:", scannedId);
@@ -96,72 +87,93 @@ export default function CheckPage({ params }) {
     return () => {
       channel.close();
     };
-  }, [materialData]); // Ricarica il listener se i dati cambiano
+  }, [materialData]);
 
-  // Funzione che cerca l'ID scansionato nella lista e mette la spunta AUTOMATICAMENTE
+  /**
+   * Quando arriva un tag NFC, cerca l'ID in tutta la gerarchia:
+   * - Se corrisponde a un sotto-elemento (item): spunta solo quell'item
+   * - Se corrisponde a una categoria: spunta tutti i sotto-elementi di quella categoria
+   *   (oppure la chiave-categoria stessa se non ha sotto-elementi)
+   */
   const handleNfcMatch = (scannedId) => {
     if (!materialData || materialData.length === 0) return;
 
-    let itemFound = false;
-    let itemName = "";
+    let found = false;
+    let foundName = "";
 
-    // Loop annidato per trovare l'oggetto
     for (const macro of materialData) {
-      for (const cat of macro.categories) {
-        // Cerchiamo tra gli items
-        const item = cat.items.find((i) => i.id === scannedId);
+      if (found) break;
 
-        if (item) {
-          itemFound = true;
-          itemName = item.name;
+      for (const category of macro.categories) {
+        if (found) break;
 
-          // Controllo oggetti problematici
-          if (item.materiale_mancante) {
-            alert(
-              `⚠️ ATTENZIONE: ${itemName} è segnalato come MANCANTE nel sistema!`
-            );
+        // --- Caso 1: l'ID corrisponde a un sotto-elemento ---
+        const matchingItem = category.items.find((i) => i.id === scannedId);
+        if (matchingItem) {
+          found = true;
+          foundName = matchingItem.name;
+
+          if (matchingItem.materiale_mancante) {
+            alert(`⚠️ ATTENZIONE: ${foundName} è segnalato come MANCANTE nel sistema!`);
             return;
           }
 
-          // Costruiamo la chiave univoca
-          const itemKey = `${macro.id}-${cat.id}-${item.id}`;
-
-          // Aggiorniamo lo stato (QUESTO È L'UNICO MODO PER SPUNTARE)
+          const itemKey = `${macro.id}-${category.id}-${matchingItem.id}`;
           setCheckedItems((prev) => {
-            // Vibrazione feedback (solo se nuova spunta)
-            if (
-              !prev[itemKey] &&
-              typeof navigator !== "undefined" &&
-              navigator.vibrate
-            ) {
+            if (!prev[itemKey] && typeof navigator !== "undefined" && navigator.vibrate) {
               navigator.vibrate([100, 50, 100]);
             }
-            return {
-              ...prev,
-              [itemKey]: true,
-            };
+            return { ...prev, [itemKey]: true };
           });
+          break;
+        }
 
+        // --- Caso 2: l'ID corrisponde alla categoria stessa ---
+        if (category.id === scannedId) {
+          found = true;
+          foundName = category.name;
+
+          if (category.materiale_mancante) {
+            alert(`⚠️ ATTENZIONE: ${foundName} è segnalato come MANCANTE nel sistema!`);
+            return;
+          }
+
+          if (typeof navigator !== "undefined" && navigator.vibrate) {
+            navigator.vibrate([100, 50, 100]);
+          }
+
+          setCheckedItems((prev) => {
+            const updated = { ...prev };
+
+            if (category.items.length === 0) {
+              // Nessun sotto-elemento: usa chiave categoria
+              updated[`${macro.id}-${category.id}`] = true;
+            } else {
+              // Spunta tutti i sotto-elementi non mancanti
+              category.items.forEach((item) => {
+                if (!item.materiale_mancante) {
+                  updated[`${macro.id}-${category.id}-${item.id}`] = true;
+                }
+              });
+            }
+
+            return updated;
+          });
           break;
         }
       }
-      if (itemFound) break;
     }
 
-    // Feedback visivo (Toast)
-    if (itemFound) {
-      setLastScannedMessage(`${itemName} verificato!`);
+    if (found) {
+      setLastScannedMessage(`${foundName} verificato!`);
       setTimeout(() => setLastScannedMessage(null), 3000);
     }
   };
-  // ------------------------------------------
 
-  // --- 5. EFFETTI LOGICI ---
+  // --- EFFETTI LOGICI ---
   useEffect(() => {
     if (checkType && existingChecks.length > 0) {
-      const isCompleted = existingChecks.some(
-        (check) => check.type === checkType
-      );
+      const isCompleted = existingChecks.some((check) => check.type === checkType);
       setIsCheckCompleted(isCompleted);
     }
   }, [checkType, existingChecks]);
@@ -207,7 +219,7 @@ export default function CheckPage({ params }) {
     },
   ];
 
-  // --- 7. HANDLERS UTENTE ---
+  // --- HANDLERS ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -238,54 +250,11 @@ export default function CheckPage({ params }) {
     }
   };
 
-  // --- BLOCCO CHECK MANUALE ---
-  // Queste funzioni ora mostrano solo un alert invece di modificare lo stato
-  const handleItemCheck = (macroId, categoryId, itemId) => {
-    alert(
-      "🔒 Check Manuale Disabilitato.\nAvvicina il telefono al Tag NFC dell'oggetto per confermarlo."
-    );
-  };
-
-  const handleCategoryCheck = (macroId, categoryId) => {
-  const macro = materialData.find((m) => m.id === macroId);
-  if (!macro) return;
-
-  const category = macro.categories.find((c) => c.id === categoryId);
-  if (!category) return;
-
-  setCheckedItems((prev) => {
-    const updated = { ...prev };
-
-    // Caso: categoria senza items
-    if (category.items.length === 0) {
-      const categoryKey = `${macroId}-${categoryId}`;
-      updated[categoryKey] = !prev[categoryKey];
-      return updated;
-    }
-
-    // Caso: categoria con items
-    const allChecked = category.items.every(
-      (item) => prev[`${macroId}-${categoryId}-${item.id}`]
-    );
-
-    category.items.forEach((item) => {
-      if (!item.materiale_mancante) {
-        const itemKey = `${macroId}-${categoryId}-${item.id}`;
-        updated[itemKey] = !allChecked;
-      }
-    });
-
-    return updated;
-  });
-};
-
   const handleSubmitCheck = async () => {
     if (!partyData || !currentUser || !shelfId) return;
 
     if (!isAllItemsChecked() && !materialSmarrito) {
-      alert(
-        "Devi scansionare tutti gli elementi o spuntare 'materiale smarrito' per procedere."
-      );
+      alert("Devi scansionare tutti gli elementi o spuntare 'materiale smarrito' per procedere.");
       return;
     }
 
@@ -313,7 +282,6 @@ export default function CheckPage({ params }) {
       }
 
       alert(result.message);
-
       setCheckedItems({});
       setCheckType("");
       mutate();
@@ -325,53 +293,23 @@ export default function CheckPage({ params }) {
     }
   };
 
-  // --- 8. HELPER FUNCTIONS ---
+  // --- HELPER FUNCTIONS ---
   const getTotalItems = () => {
     let total = 0;
     if (!materialData || !Array.isArray(materialData)) return 0;
 
     materialData.forEach((macro) => {
-      if (macro.categories && Array.isArray(macro.categories)) {
-        macro.categories.forEach((category) => {
-          if (category.items && Array.isArray(category.items)) {
-            if (category.items.length === 0) {
-              total += 1;
-            } else {
-              total += category.items.filter(
-                (item) => !item.materiale_mancante
-              ).length;
-            }
-          } else {
-            total += 1;
-          }
-        });
-      }
-    });
-    return total;
-  };
-
-  const getUncheckedItemIds = () => {
-    const uncheckedIds = [];
-    materialData.forEach((macro) => {
+      if (!macro.categories) return;
       macro.categories.forEach((category) => {
-        if (category.items.length === 0) {
-          const categoryKey = `${macro.id}-${category.id}`;
-          if (!checkedItems[categoryKey]) {
-            uncheckedIds.push(category.id);
-          }
+        if (!category.items || category.items.length === 0) {
+          // Categoria senza sotto-elementi conta come 1
+          total += 1;
         } else {
-          category.items.forEach((item) => {
-            if (!item.materiale_mancante) {
-              const itemKey = `${macro.id}-${category.id}-${item.id}`;
-              if (!checkedItems[itemKey]) {
-                uncheckedIds.push(item.id);
-              }
-            }
-          });
+          total += category.items.filter((item) => !item.materiale_mancante).length;
         }
       });
     });
-    return uncheckedIds;
+    return total;
   };
 
   const getCheckedCount = () => {
@@ -385,58 +323,68 @@ export default function CheckPage({ params }) {
   };
 
   const isAllItemsChecked = () => {
-    let totalSelectableItems = 0;
-    let checkedSelectableItems = 0;
+    let totalSelectable = 0;
+    let checkedSelectable = 0;
 
     materialData.forEach((macro) => {
       macro.categories.forEach((category) => {
-        if (category.items.length === 0) {
+        if (!category.items || category.items.length === 0) {
+          totalSelectable++;
           const categoryKey = `${macro.id}-${category.id}`;
-          totalSelectableItems++;
-          if (checkedItems[categoryKey]) {
-            checkedSelectableItems++;
-          }
+          if (checkedItems[categoryKey]) checkedSelectable++;
         } else {
           category.items.forEach((item) => {
             if (!item.materiale_mancante) {
-              totalSelectableItems++;
+              totalSelectable++;
               const itemKey = `${macro.id}-${category.id}-${item.id}`;
-              if (checkedItems[itemKey]) {
-                checkedSelectableItems++;
-              }
+              if (checkedItems[itemKey]) checkedSelectable++;
             }
           });
         }
       });
     });
 
-    return (
-      totalSelectableItems === checkedSelectableItems &&
-      totalSelectableItems > 0
-    );
+    return totalSelectable > 0 && totalSelectable === checkedSelectable;
   };
 
-  console.log(materialData);
-  // --- 9. RENDER CONDIZIONALE ---
+  const getUncheckedItemIds = () => {
+    const uncheckedIds = [];
+    materialData.forEach((macro) => {
+      macro.categories.forEach((category) => {
+        if (!category.items || category.items.length === 0) {
+          const categoryKey = `${macro.id}-${category.id}`;
+          if (!checkedItems[categoryKey]) uncheckedIds.push(category.id);
+        } else {
+          category.items.forEach((item) => {
+            if (!item.materiale_mancante) {
+              const itemKey = `${macro.id}-${category.id}-${item.id}`;
+              if (!checkedItems[itemKey]) uncheckedIds.push(item.id);
+            }
+          });
+        }
+      });
+    });
+    return uncheckedIds;
+  };
 
-  if (!shelfId) {
-    return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Caricamento...</p>
-        </div>
-      </div>
-    );
-  }
+  // Helper: true se tutti gli items di una categoria sono checkati
+  const isCategoryChecked = (macro, category) => {
+    if (!category.items || category.items.length === 0) {
+      return !!checkedItems[`${macro.id}-${category.id}`];
+    }
+    const nonMissing = category.items.filter((i) => !i.materiale_mancante);
+    if (nonMissing.length === 0) return false;
+    return nonMissing.every((item) => checkedItems[`${macro.id}-${category.id}-${item.id}`]);
+  };
 
-  if (isLoadingParty) {
+  // --- RENDER ---
+  if (!shelfId || isLoadingParty) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-muted-foreground">
-            Caricamento festa per scaffale {shelfId}...
+            {!shelfId ? "Caricamento..." : `Caricamento festa per scaffale ${shelfId}...`}
           </p>
         </div>
       </div>
@@ -454,12 +402,9 @@ export default function CheckPage({ params }) {
           <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
             <Package className="w-8 h-8 text-muted-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">
-            Scaffale {shelfId}
-          </h1>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale {shelfId}</h1>
           <p className="text-muted-foreground mb-6">
-            Non è stata trovata nessuna festa assegnata a questo scaffale.
-            Contatta l'amministratore per verificare l'assegnazione.
+            Non è stata trovata nessuna festa assegnata a questo scaffale. Contatta l'amministratore.
           </p>
         </motion.div>
       </div>
@@ -469,7 +414,6 @@ export default function CheckPage({ params }) {
   if (currentUser && partyData?.animatore_id) {
     const isAnimator = currentUser.ruolo === "animatore";
     const isAssignedAnimator = partyData.animatore_id === currentUser.id;
-
     if (isAnimator && !isAssignedAnimator) {
       return (
         <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -479,12 +423,9 @@ export default function CheckPage({ params }) {
             className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
           >
             <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-foreground mb-2">
-              Accesso Negato
-            </h1>
+            <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
             <p className="text-muted-foreground mb-6">
-              Solo l'animatore assegnato può accedere a questo check. Sei
-              assegnato a un'altra festa.
+              Solo l'animatore assegnato può accedere a questo check.
             </p>
           </motion.div>
         </div>
@@ -511,9 +452,7 @@ export default function CheckPage({ params }) {
               Inserisci le tue credenziali per accedere al check
             </p>
             {partyData && (
-              <p className="text-sm text-primary mt-2 font-medium">
-                Festa: {partyData.nome}
-              </p>
+              <p className="text-sm text-primary mt-2 font-medium">Festa: {partyData.nome}</p>
             )}
           </div>
 
@@ -525,22 +464,17 @@ export default function CheckPage({ params }) {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
-                Nome
-              </label>
+              <label className="block text-sm font-medium text-foreground mb-2">Nome</label>
               <input
                 type="text"
                 value={loginData.name}
-                onChange={(e) =>
-                  setLoginData((prev) => ({ ...prev, name: e.target.value }))
-                }
+                onChange={(e) => setLoginData((prev) => ({ ...prev, name: e.target.value }))}
                 className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="Il tuo nome"
                 required
                 disabled={isLoggingIn}
               />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">
                 Codice di Sicurezza
@@ -548,21 +482,14 @@ export default function CheckPage({ params }) {
               <input
                 type="password"
                 value={loginData.code}
-                onChange={(e) =>
-                  setLoginData((prev) => ({ ...prev, code: e.target.value }))
-                }
+                onChange={(e) => setLoginData((prev) => ({ ...prev, code: e.target.value }))}
                 className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="Codice"
                 required
                 disabled={isLoggingIn}
               />
             </div>
-
-            <button
-              type="submit"
-              className="w-full btn-primary"
-              disabled={isLoggingIn}
-            >
+            <button type="submit" className="w-full btn-primary" disabled={isLoggingIn}>
               {isLoggingIn ? (
                 <div className="flex items-center justify-center space-x-2">
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -589,16 +516,12 @@ export default function CheckPage({ params }) {
             className="max-w-2xl mx-auto"
           >
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
-              <h1 className="text-2xl font-bold text-foreground mb-4">
-                Scaffale {shelfId}
-              </h1>
+              <h1 className="text-2xl font-bold text-foreground mb-4">Scaffale {shelfId}</h1>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center space-x-2">
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Festa:</span>
-                  <span className="font-medium text-foreground">
-                    {partyData.nome}
-                  </span>
+                  <span className="font-medium text-foreground">{partyData.nome}</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-muted-foreground" />
@@ -610,9 +533,7 @@ export default function CheckPage({ params }) {
                 <div className="flex items-center space-x-2">
                   <MapPin className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Luogo:</span>
-                  <span className="font-medium text-foreground">
-                    {partyData.luogo}
-                  </span>
+                  <span className="font-medium text-foreground">{partyData.luogo}</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <User className="w-4 h-4 text-muted-foreground" />
@@ -625,17 +546,11 @@ export default function CheckPage({ params }) {
             </div>
 
             <div className="space-y-4">
-              <h2 className="text-xl font-semibold text-foreground">
-                Seleziona il tipo di check
-              </h2>
+              <h2 className="text-xl font-semibold text-foreground">Seleziona il tipo di check</h2>
               <div className="grid gap-4">
                 {checkTypes.map((type, index) => {
                   const Icon = type.icon;
-
-                  const isCompleted = existingChecks.some(
-                    (check) => check.type === type.id
-                  );
-
+                  const isCompleted = existingChecks.some((check) => check.type === type.id);
                   let isPreviousCompleted = true;
                   if (index > 0) {
                     const previousType = checkTypes[index - 1];
@@ -643,15 +558,11 @@ export default function CheckPage({ params }) {
                       (check) => check.type === previousType.id
                     );
                   }
-
                   const isRoleAllowed = type.allowedRoles.includes(userRole);
-
-                  const isDisabled =
-                    isCompleted || !isPreviousCompleted || !isRoleAllowed;
+                  const isDisabled = isCompleted || !isPreviousCompleted || !isRoleAllowed;
 
                   let statusMessage = "";
                   let statusColor = "text-muted-foreground";
-
                   if (isCompleted) {
                     statusMessage = "✓ Check già completato";
                     statusColor = "text-green-700 font-medium";
@@ -659,9 +570,7 @@ export default function CheckPage({ params }) {
                     statusMessage = "🔒 Richiede completamento fase precedente";
                     statusColor = "text-amber-700 font-bold";
                   } else if (!isRoleAllowed) {
-                    statusMessage = `⛔ Richiesto ruolo: ${type.allowedRoles.join(
-                      ", "
-                    )}`;
+                    statusMessage = `⛔ Richiesto ruolo: ${type.allowedRoles.join(", ")}`;
                     statusColor = "text-red-500";
                   } else {
                     statusMessage = `Utente: ${currentUser.nome}`;
@@ -690,9 +599,7 @@ export default function CheckPage({ params }) {
                             <Lock className="w-6 h-6 text-gray-500" />
                           ) : (
                             <Icon
-                              className={`w-6 h-6 ${
-                                isCompleted ? "text-green-600" : type.color
-                              }`}
+                              className={`w-6 h-6 ${isCompleted ? "text-green-600" : type.color}`}
                             />
                           )}
                         </div>
@@ -700,9 +607,7 @@ export default function CheckPage({ params }) {
                           <h3 className="text-lg font-semibold text-foreground truncate">
                             {type.name}
                           </h3>
-                          <p className={`text-sm truncate ${statusColor}`}>
-                            {statusMessage}
-                          </p>
+                          <p className={`text-sm truncate ${statusColor}`}>{statusMessage}</p>
                         </div>
                       </div>
                     </motion.button>
@@ -716,7 +621,7 @@ export default function CheckPage({ params }) {
     );
   }
 
-  // --- CHECK COMPLETATO ---
+  // --- CHECK GIÀ COMPLETATO ---
   if (isCheckCompleted) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -728,17 +633,11 @@ export default function CheckPage({ params }) {
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">
-            Check Completato
-          </h1>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Check Completato</h1>
           <p className="text-muted-foreground mb-6">
-            Questo tipo di check è già stato completato per la festa "
-            {partyData?.nome}".
+            Questo tipo di check è già stato completato per la festa "{partyData?.nome}".
           </p>
-          <button
-            onClick={() => setCheckType("")}
-            className="btn-primary w-full mb-2"
-          >
+          <button onClick={() => setCheckType("")} className="btn-primary w-full mb-2">
             Scegli Altro Check
           </button>
         </motion.div>
@@ -764,11 +663,8 @@ export default function CheckPage({ params }) {
               <ArrowLeft className="w-4 h-4" />
               <span>Cambia Tipo Check</span>
             </button>
-
             <div className="text-right">
-              <p className="text-sm text-muted-foreground">
-                Utente: {currentUser.nome}
-              </p>
+              <p className="text-sm text-muted-foreground">Utente: {currentUser.nome}</p>
               <p className="text-sm text-muted-foreground">Ruolo: {userRole}</p>
               <p className="text-sm text-muted-foreground font-semibold">
                 {checkTypes.find((t) => t.id === checkType)?.name}
@@ -776,7 +672,7 @@ export default function CheckPage({ params }) {
             </div>
           </div>
 
-          {/* --- NOTIFICA TOAST NFC --- */}
+          {/* TOAST NFC */}
           <AnimatePresence>
             {lastScannedMessage && (
               <motion.div
@@ -790,7 +686,6 @@ export default function CheckPage({ params }) {
               </motion.div>
             )}
           </AnimatePresence>
-          {/* ------------------------- */}
 
           {/* PROGRESS BAR */}
           <div className="bg-card p-6 rounded-xl border border-border mb-6">
@@ -826,112 +721,102 @@ export default function CheckPage({ params }) {
                 </h3>
 
                 <div className="space-y-4">
-                  {macro.categories.map((category) => (
-                    <div
-                      key={category.id}
-                      className="border border-border rounded-lg p-4"
-                    >
-                      <h4 className="font-medium text-foreground mb-3">
-                        {category.name}
-                      </h4>
+                  {macro.categories.map((category) => {
+                    const catChecked = isCategoryChecked(macro, category);
 
-                      {category.items.length === 0 ? (
-                        <div className="grid grid-cols-1">
-                          {(() => {
-                            const categoryKey = `${macro.id}-${category.id}`;
-                            const isChecked =
-                              category.items.length === 0
-                                ? checkedItems[categoryKey]
-                                : category.items.every(
-                                    (item) => checkedItems[`${macro.id}-${category.id}-${item.id}`]
-                                  );
-                            const isDisabled = category.materiale_mancante;
-
-                            return (
-                              <motion.button
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() =>
-                                  handleCategoryCheck(macro.id, category.id)
-                                }
-                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-default ${
-                                  isChecked
-                                    ? "bg-green-50 border-green-200 text-green-800"
-                                    : "bg-surface border-border text-foreground"
-                                }`}
-                              >
-                                {isDisabled ? (
-                                  <div className="w-5 h-5 bg-gray-300 rounded-full" />
-                                ) : isChecked ? (
-                                  <CheckCircle className="w-5 h-5 text-green-600" />
-                                ) : (
-                                  <ScanLine className="w-5 h-5 text-muted-foreground opacity-50" />
-                                )}
-                                <span className="text-sm font-medium">
-                                  Categoria completa
-                                </span>
-                                {category.materiale_mancante && (
-                                  <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
-                                    Mancante
-                                  </span>
-                                )}
-                              </motion.button>
-                            );
-                          })()}
+                    return (
+                      <div key={category.id} className="border border-border rounded-lg p-4">
+                        {/* Header categoria con stato di completamento */}
+                        <div className="flex items-center gap-2 mb-3">
+                          {catChecked ? (
+                            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                          ) : (
+                            <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
+                          )}
+                          <h4
+                            className={`font-medium ${
+                              catChecked ? "text-green-700" : "text-foreground"
+                            }`}
+                          >
+                            {category.name}
+                          </h4>
+                          {category.materiale_mancante && (
+                            <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded ml-auto">
+                              Mancante
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {category.items.map((item) => {
-                            const itemKey = `${macro.id}-${category.id}-${item.id}`;
-                            const isChecked = checkedItems[itemKey];
-                            const isDisabled = item.materiale_mancante;
 
-                            return (
-                              <motion.button
-                                key={item.id}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() =>
-                                  handleItemCheck(
-                                    macro.id,
-                                    category.id,
-                                    item.id
-                                  )
-                                }
-                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-default ${
-                                  isDisabled
-                                    ? "opacity-50 cursor-not-allowed bg-gray-100 border-gray-200"
-                                    : isChecked
-                                    ? "bg-green-50 border-green-200 text-green-800"
-                                    : "bg-surface border-border text-foreground hover:bg-gray-50"
-                                }`}
-                              >
-                                {isDisabled ? (
-                                  <div className="w-5 h-5 bg-gray-300 rounded-full" />
-                                ) : isChecked ? (
-                                  <CheckCircle className="w-5 h-5 text-green-600" />
-                                ) : (
-                                  <ScanLine className="w-5 h-5 text-muted-foreground opacity-50" />
-                                )}
-                                <span className="text-sm font-medium flex-1 text-left">
-                                  {item.name}
-                                </span>
-                                {item.materiale_mancante && (
-                                  <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
-                                    Mancante
+                        {/* Categoria senza sotto-elementi */}
+                        {(!category.items || category.items.length === 0) ? (
+                          <div
+                            className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                              category.materiale_mancante
+                                ? "opacity-50 bg-gray-100 border-gray-200"
+                                : catChecked
+                                ? "bg-green-50 border-green-200 text-green-800"
+                                : "bg-surface border-border text-foreground"
+                            }`}
+                          >
+                            {category.materiale_mancante ? (
+                              <div className="w-5 h-5 bg-gray-300 rounded-full" />
+                            ) : catChecked ? (
+                              <CheckCircle className="w-5 h-5 text-green-600" />
+                            ) : (
+                              <ScanLine className="w-5 h-5 text-muted-foreground opacity-50" />
+                            )}
+                            <span className="text-sm font-medium">
+                              {catChecked ? "Verificato via NFC" : "In attesa di scansione NFC"}
+                            </span>
+                          </div>
+                        ) : (
+                          /* Categoria con sotto-elementi */
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {category.items.map((item) => {
+                              const itemKey = `${macro.id}-${category.id}-${item.id}`;
+                              const isChecked = !!checkedItems[itemKey];
+                              const isDisabled = item.materiale_mancante;
+
+                              return (
+                                <div
+                                  key={item.id}
+                                  className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                    isDisabled
+                                      ? "opacity-50 cursor-not-allowed bg-gray-100 border-gray-200"
+                                      : isChecked
+                                      ? "bg-green-50 border-green-200 text-green-800"
+                                      : "bg-surface border-border text-foreground"
+                                  }`}
+                                >
+                                  {isDisabled ? (
+                                    <div className="w-5 h-5 bg-gray-300 rounded-full" />
+                                  ) : isChecked ? (
+                                    <CheckCircle className="w-5 h-5 text-green-600" />
+                                  ) : (
+                                    <ScanLine className="w-5 h-5 text-muted-foreground opacity-50" />
+                                  )}
+                                  <span className="text-sm font-medium flex-1 text-left">
+                                    {item.name}
                                   </span>
-                                )}
-                              </motion.button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                                  {item.materiale_mancante && (
+                                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
+                                      Mancante
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </motion.div>
             ))}
           </div>
 
-          {/* CHECKBOX SMARRITO */}
+          {/* CHECKBOX MATERIALE SMARRITO */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -944,27 +829,18 @@ export default function CheckPage({ params }) {
                 onChange={(e) => setMaterialSmarrito(e.target.checked)}
                 className="w-6 h-6 rounded border-border text-primary focus:ring-primary"
               />
-              <span className="font-bold text-foreground">
-                Materiale Smarrito / Danneggiato
-              </span>
+              <span className="font-bold text-foreground">Materiale Smarrito / Danneggiato</span>
             </label>
             <p className="text-sm text-muted-foreground mt-2 pl-9">
-              Spunta questa casella solo se hai scansionato tutto il possibile e
-              manca qualcosa.
+              Spunta questa casella solo se hai scansionato tutto il possibile e manca qualcosa.
             </p>
           </motion.div>
 
           {/* BOTTONE INVIO */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="sticky bottom-4 mt-4"
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="sticky bottom-4 mt-4">
             <button
               onClick={handleSubmitCheck}
-              disabled={
-                isSubmitting || (!isAllItemsChecked() && !materialSmarrito)
-              }
+              disabled={isSubmitting || (!isAllItemsChecked() && !materialSmarrito)}
               className={`w-full py-4 rounded-xl font-semibold text-white transition-all shadow-xl ${
                 isSubmitting || (!isAllItemsChecked() && !materialSmarrito)
                   ? "bg-muted cursor-not-allowed"
