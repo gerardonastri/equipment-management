@@ -39,7 +39,7 @@ export default function NfcRelayPage({ params }) {
       } catch (e) {
         console.log("Auto-close blocked");
       }
-    }, 1500);
+    }, 200);
 
     return () => {
       channel.close();
