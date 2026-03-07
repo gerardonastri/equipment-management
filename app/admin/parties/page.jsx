@@ -16,6 +16,7 @@ import Navbar from "@/components/navbar";
 import { PartyCard } from "@/components/parties/party-card";
 import { PartyFormModal } from "@/components/parties/party-form-modal";
 import { MaterialModal } from "@/components/parties/material-modal";
+import { PartyHistoryModal } from "@/components/parties/party-history-modal";
 import {
   getPartiesData,
   getPartyMaterials,
@@ -24,6 +25,7 @@ import {
   assignMaterial,
   removeMaterial,
   updateParty,
+  getPartyHistory,
 } from "./actions";
 import { cacheManager } from "@/lib/cache/db";
 
@@ -50,9 +52,16 @@ export default function PartiesPage() {
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
 
+  // --- STORICO ---
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyParty, setHistoryParty] = useState(null);
+
+  // Mappa partyId → { lossCount, hasMissingMaterial } per gli alert
+  const [partyAlerts, setPartyAlerts] = useState({});
+
   const { data, error, isLoading, mutate } = useSWR("parties-data", fetcher, {
     revalidateOnFocus: false,
-    revalidateOnReconnect: true, // Abilitare rivalidazione quando torna online
+    revalidateOnReconnect: true,
   });
 
   useEffect(() => {
@@ -60,6 +69,7 @@ export default function PartiesPage() {
       cacheManager.cacheParties(data.parties).catch(console.error);
       cacheManager.cacheUsers(data.users || []).catch(console.error);
       cacheManager.cacheMacros(data.macroCategories || []).catch(console.error);
+      loadPartyAlerts(data.parties);
     }
   }, [data]);
 
@@ -90,6 +100,32 @@ export default function PartiesPage() {
   const parties = data?.parties || [];
   const users = data?.users || [];
   const macroCategories = data?.macroCategories || [];
+
+  /**
+   * Carica in background i conteggi di perdite per ogni festa
+   * per mostrare i badge di alert sulle card.
+   */
+  const loadPartyAlerts = async (partiesList) => {
+    const results = await Promise.allSettled(
+      partiesList.map(async (party) => {
+        const history = await getPartyHistory(party.id);
+        return {
+          id: party.id,
+          lossCount: history.losses?.length || 0,
+          hasMissingMaterial: history.losses?.some((l) => l.tipo === "mancante"),
+          losses: history.losses || [],
+        };
+      })
+    );
+
+    const alertMap = {};
+    results.forEach((res, idx) => {
+      if (res.status === "fulfilled") {
+        alertMap[partiesList[idx].id] = res.value;
+      }
+    });
+    setPartyAlerts(alertMap);
+  };
 
   const loadPartyMaterialsData = async (partyId) => {
     setLoadingMaterials(true);
@@ -157,11 +193,7 @@ export default function PartiesPage() {
   const handleAddParty = async (e) => {
     e.preventDefault();
     try {
-      await createParty({
-        ...newParty,
-        selectedMaterials,
-      });
-
+      await createParty({ ...newParty, selectedMaterials });
       mutate();
       setShowFormModal(false);
       setNewParty({
@@ -228,7 +260,6 @@ export default function PartiesPage() {
 
   const handleDeleteParty = async (partyId) => {
     if (!confirm("Sei sicuro di voler eliminare questa festa?")) return;
-
     try {
       await deleteParty(partyId);
       await cacheManager.deletePartyFromCache(partyId);
@@ -245,6 +276,11 @@ export default function PartiesPage() {
     await loadPartyMaterialsData(party.id);
   };
 
+  const openHistoryModal = (party) => {
+    setHistoryParty(party);
+    setShowHistoryModal(true);
+  };
+
   const toggleMaterialSelection = (materialId) => {
     setSelectedMaterials((prev) =>
       prev.includes(materialId)
@@ -257,12 +293,8 @@ export default function PartiesPage() {
     const matchesSearch =
       party.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       party.luogo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (party.animatore?.nome || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      (party.magazziniere?.nome || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
+      (party.animatore?.nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (party.magazziniere?.nome || "").toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus =
       selectedStatuses.length === 0 || selectedStatuses.includes(party.stato);
@@ -272,9 +304,7 @@ export default function PartiesPage() {
 
   const toggleStatusFilter = (status) => {
     setSelectedStatuses((prev) =>
-      prev.includes(status)
-        ? prev.filter((s) => s !== status)
-        : [...prev, status]
+      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
     );
   };
 
@@ -363,7 +393,6 @@ export default function PartiesPage() {
 
           {/* Search and Filters */}
           <div className="bg-card p-6 rounded-xl border border-border space-y-4">
-            {/* Search Bar */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
@@ -375,7 +404,6 @@ export default function PartiesPage() {
               />
             </div>
 
-            {/* Status Filter Buttons */}
             <div className="flex flex-wrap gap-2">
               <span className="text-sm font-medium text-muted-foreground pt-2">
                 Filtra per stato:
@@ -404,18 +432,29 @@ export default function PartiesPage() {
           {/* Parties List */}
           <div className="grid gap-6">
             {filteredParties.length > 0 ? (
-              filteredParties.map((party) => (
-                <PartyCard
-                  key={party.id}
-                  party={party}
-                  onEdit={handleEditParty}
-                  onDelete={handleDeleteParty}
-                  onMaterial={openMaterialModal}
-                  getStatusColor={getStatusColor}
-                  getStatusText={getStatusText}
-                  getStatusIcon={getStatusIcon}
-                />
-              ))
+              filteredParties.map((party) => {
+                const alerts = partyAlerts[party.id];
+                const enrichedParty = {
+                  ...party,
+                  _lossCount: alerts?.lossCount || 0,
+                  _hasMissingMaterial: alerts?.hasMissingMaterial || false,
+                  _losses: alerts?.losses || [],
+                };
+
+                return (
+                  <PartyCard
+                    key={party.id}
+                    party={enrichedParty}
+                    onEdit={handleEditParty}
+                    onDelete={handleDeleteParty}
+                    onMaterial={openMaterialModal}
+                    onHistory={openHistoryModal}
+                    getStatusColor={getStatusColor}
+                    getStatusText={getStatusText}
+                    getStatusIcon={getStatusIcon}
+                  />
+                );
+              })
             ) : (
               <div className="text-center py-12">
                 <p className="text-muted-foreground">Nessuna festa trovata</p>
@@ -483,6 +522,16 @@ export default function PartiesPage() {
             onAssignMaterial={handleAssignMaterial}
             onRemoveMaterial={handleRemoveMaterial}
             onClose={() => setShowMaterialModal(false)}
+          />
+
+          {/* History Modal */}
+          <PartyHistoryModal
+            isOpen={showHistoryModal}
+            party={historyParty}
+            onClose={() => {
+              setShowHistoryModal(false);
+              setHistoryParty(null);
+            }}
           />
         </motion.div>
       </main>

@@ -11,10 +11,12 @@ export function ShelfSelector({
 }) {
   const [shelfInput, setShelfInput] = useState("");
 
-  // Get all shelves in use
+  // FIX: uno scaffale è "occupato" solo se la festa NON è scaricato_scaffale
+  // (cioè la festa è ancora attiva e lo scaffale è in uso)
   const usedShelves = new Set();
   allParties.forEach((party) => {
-    if (party.id !== currentPartyId && party.shelves) {
+    // Escludi la festa corrente (in modifica) e le feste completate
+    if (party.id !== currentPartyId && party.stato !== "scaricato_scaffale" && party.shelves) {
       party.shelves.split(",").forEach((shelf) => {
         usedShelves.add(Number.parseInt(shelf.trim()));
       });
@@ -79,7 +81,7 @@ export function ShelfSelector({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Scaffali disponibili: {availableShelves.length}/{50}
+        Scaffali disponibili: {availableShelves.length}/{50} (gli scaffali delle feste completate sono automaticamente liberati)
       </p>
     </div>
   );

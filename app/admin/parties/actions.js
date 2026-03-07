@@ -38,7 +38,6 @@ export async function getPartiesData() {
 export async function getPartyMaterials(partyId) {
   const supabase = await createServerClient();
 
-  // Get all macro categories assigned to this party
   const { data: partyMacros, error: macroError } = await supabase
     .from("party_inventory")
     .select("inventory_id")
@@ -55,7 +54,6 @@ export async function getPartyMaterials(partyId) {
 
   const macroIds = partyMacros.map((m) => m.inventory_id);
 
-  // Get all macro categories details
   const { data: macros, error: macrosError } = await supabase
     .from("inventory_items")
     .select("*")
@@ -67,10 +65,8 @@ export async function getPartyMaterials(partyId) {
     return [];
   }
 
-  // For each macro, get its categories and subcategories
   const result = [];
   for (const macro of macros || []) {
-    // Get categories for this macro
     const { data: categories, error: catError } = await supabase
       .from("inventory_items")
       .select("*")
@@ -84,7 +80,6 @@ export async function getPartyMaterials(partyId) {
 
     const categoriesWithSubs = [];
     for (const category of categories || []) {
-      // Get subcategories for this category
       const { data: subcategories, error: subError } = await supabase
         .from("inventory_items")
         .select("*")
@@ -111,6 +106,55 @@ export async function getPartyMaterials(partyId) {
   return result;
 }
 
+/**
+ * Carica lo storico completo di una festa:
+ * - checks (con utente che ha eseguito il check)
+ * - inventory_losses (con elemento inventario e utente che ha segnalato)
+ */
+export async function getPartyHistory(partyId) {
+  const supabase = await createServerClient();
+
+  // Checks della festa, con join all'utente
+  const { data: checks, error: checksError } = await supabase
+    .from("checks")
+    .select(
+      `
+      *,
+      user:user_id(nome, ruolo)
+    `
+    )
+    .eq("party_id", partyId)
+    .order("created_at", { ascending: true });
+
+  if (checksError) {
+    console.error("[v0] Error loading checks:", checksError);
+    return { checks: [], losses: [] };
+  }
+
+  // Perdite/danni della festa, con join all'elemento e all'utente
+  const { data: losses, error: lossesError } = await supabase
+    .from("inventory_losses")
+    .select(
+      `
+      *,
+      item:inventory_id(name, type),
+      reporter:reported_by(nome)
+    `
+    )
+    .eq("party_id", partyId)
+    .order("created_at", { ascending: false });
+
+  if (lossesError) {
+    console.error("[v0] Error loading losses:", lossesError);
+    return { checks: checks || [], losses: [] };
+  }
+
+  return {
+    checks: checks || [],
+    losses: losses || [],
+  };
+}
+
 export async function createParty(formData) {
   const supabase = await createServerClient();
 
@@ -132,14 +176,11 @@ export async function createParty(formData) {
 
   if (error) throw error;
 
-  // Assign selected materials
   if (formData.selectedMaterials?.length > 0 && data[0]) {
-    const materialAssignments = formData.selectedMaterials.map(
-      (materialId) => ({
-        party_id: data[0].id,
-        inventory_id: materialId,
-      })
-    );
+    const materialAssignments = formData.selectedMaterials.map((materialId) => ({
+      party_id: data[0].id,
+      inventory_id: materialId,
+    }));
 
     const { error: materialError } = await supabase
       .from("party_inventory")

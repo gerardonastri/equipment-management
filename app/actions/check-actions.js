@@ -182,7 +182,6 @@ export async function submitCheck(
       return { error: "Non hai i permessi per questo tipo di check" };
     }
 
-    // Verifica la sequenza propedeutica
     const checkSequence = [
       "deposito_scaffale",
       "scaffale_furgone",
@@ -192,7 +191,6 @@ export async function submitCheck(
 
     const currentIndex = checkSequence.indexOf(checkType);
 
-    // Se non è il primo check, verifica che quello precedente sia stato completato
     if (currentIndex > 0) {
       const previousCheckType = checkSequence[currentIndex - 1];
 
@@ -205,10 +203,7 @@ export async function submitCheck(
 
       if (prevError || !previousCheck) {
         return {
-          error: `Devi completare prima il check: ${previousCheckType.replace(
-            /_/g,
-            " "
-          )}`,
+          error: `Devi completare prima il check: ${previousCheckType.replace(/_/g, " ")}`,
         };
       }
     }
@@ -257,13 +252,18 @@ export async function submitCheck(
       }
     }
 
-    const { error: insertError } = await supabase.from("checks").insert({
-      party_id: partyId,
-      user_id: userId,
-      type: checkType,
-      notes: `Check completato: ${checkedCount}/${totalItems} elementi verificati`,
-      materiale_smarrito: materialSmarrito,
-    });
+    // Restituiamo l'ID del check creato per poterlo collegare alle perdite
+    const { data: insertedCheck, error: insertError } = await supabase
+      .from("checks")
+      .insert({
+        party_id: partyId,
+        user_id: userId,
+        type: checkType,
+        notes: `Check completato: ${checkedCount}/${totalItems} elementi verificati`,
+        materiale_smarrito: materialSmarrito,
+      })
+      .select()
+      .single();
 
     if (insertError) throw insertError;
 
@@ -317,15 +317,12 @@ export async function submitCheck(
     };
 
     try {
-      const siteUrl =
-        process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
       await fetch(`${siteUrl}/api/telegram`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `${
-            materialSmarrito ? "⚠️" : "✅"
-          } Check completato!\n\nFesta: ${partyName}\nScaffale: ${shelfId}\nTipo: ${
+          message: `${materialSmarrito ? "⚠️" : "✅"} Check completato!\n\nFesta: ${partyName}\nScaffale: ${shelfId}\nTipo: ${
             checkTypeNames[checkType]
           }\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${
             materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""
@@ -339,9 +336,49 @@ export async function submitCheck(
 
     revalidatePath(`/admin/check/${shelfId}`);
 
-    return { message: "Check completato con successo!" };
+    return { message: "Check completato con successo!", checkId: insertedCheck?.id };
   } catch (error) {
     console.error("[v0] Error submitting check:", error);
     return { error: "Errore durante l'invio del check" };
+  }
+}
+
+/**
+ * Salva le segnalazioni di materiale perso/danneggiato/rubato
+ * nella tabella inventory_losses.
+ *
+ * @param {string} checkId  - ID del check appena completato
+ * @param {string} partyId  - ID della festa
+ * @param {string} userId   - ID dell'utente che segnala
+ * @param {Array}  losses   - Array di { inventoryId, tipo, quantita, valoreStimato, note }
+ */
+export async function reportLosses(checkId, partyId, userId, losses) {
+  try {
+    const supabase = await createClient();
+
+    if (!losses || losses.length === 0) {
+      return { success: true };
+    }
+
+    const rows = losses.map((loss) => ({
+      inventory_id: loss.inventoryId,
+      party_id: partyId,
+      check_id: checkId,
+      tipo: loss.tipo, // 'mancante' | 'danneggiato' | 'rubato'
+      quantita: loss.quantita || 1,
+      valore_stimato: loss.valoreStimato || null,
+      note: loss.note || null,
+      reported_by: userId,
+    }));
+
+    const { error } = await supabase.from("inventory_losses").insert(rows);
+
+    if (error) throw error;
+
+    console.log("[v0] Losses reported successfully:", rows.length);
+    return { success: true };
+  } catch (error) {
+    console.error("[v0] Error reporting losses:", error);
+    return { error: error.message };
   }
 }

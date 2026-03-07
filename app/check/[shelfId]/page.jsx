@@ -18,12 +18,17 @@ import {
   Lock,
   Wifi,
   ScanLine,
+  AlertTriangle,
+  Send,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import useSWR from "swr";
 import {
   getPartyDataForShelf,
   authenticateUser,
   submitCheck,
+  reportLosses,
 } from "@/app/actions/check-actions";
 
 // --- FETCHER SWR ---
@@ -36,8 +41,14 @@ const fetcher = async (shelfId) => {
 };
 
 // Fasi in cui è permesso scansionare la categoria per spuntare tutti i sotto-elementi
-// (fasi 2 e 3: carico/scarico furgone, tipicamente gestite dall'animatore)
 const FASI_CATEGORIA_CONSENTITA = ["scaffale_furgone", "furgone_scaffale"];
+
+// Tipi di perdita disponibili
+const LOSS_TYPES = [
+  { id: "mancante", label: "Mancante", color: "bg-orange-100 text-orange-700 border-orange-200" },
+  { id: "danneggiato", label: "Danneggiato", color: "bg-red-100 text-red-700 border-red-200" },
+  { id: "rubato", label: "Rubato", color: "bg-purple-100 text-purple-700 border-purple-200" },
+];
 
 export default function CheckPage({ params }) {
   const resolvedParams = use(params);
@@ -57,6 +68,20 @@ export default function CheckPage({ params }) {
   const [userRole, setUserRole] = useState(null);
   const [lastScannedMessage, setLastScannedMessage] = useState(null);
 
+  // --- STATI PER SEGNALAZIONE PERDITE ---
+  // "idle" | "reporting" | "done"
+  const [lossPhase, setLossPhase] = useState("idle");
+  const [lastCheckId, setLastCheckId] = useState(null);
+  const [lastPartyId, setLastPartyId] = useState(null);
+  // Snapshot degli items checkati al momento del submit, per mostrarli nella fase reporting
+  const [checkedItemsSnapshot, setCheckedItemsSnapshot] = useState([]);
+  // { [inventoryId]: { enabled: bool, tipo: string, note: string, valoreStimato: string } }
+  const [itemDamageState, setItemDamageState] = useState({});
+  // Espansione dettagli per item con spunta danneggiato
+  const [expandedDamage, setExpandedDamage] = useState({});
+  const [isSubmittingLosses, setIsSubmittingLosses] = useState(false);
+  // ---------------------------------------
+
   // --- DATI (SWR) ---
   const {
     data,
@@ -75,6 +100,7 @@ export default function CheckPage({ params }) {
   const partyData = data?.party;
   const existingChecks = data?.checks || [];
   const materialData = data?.materialHierarchy || [];
+  const partyCompleted = data?.partyCompleted || false;
 
   // --- NFC BROADCAST LISTENER ---
   useEffect(() => {
@@ -91,16 +117,13 @@ export default function CheckPage({ params }) {
     return () => {
       channel.close();
     };
-  }, [materialData, checkType]); // checkType incluso perché influenza la logica
+  }, [materialData, checkType]);
 
   /**
    * Regola principale:
-   * - Fasi 1 e 4 (deposito_scaffale, scaffale_deposito):
-   *     → scan NFC su categoria CON sotto-elementi NON è permesso.
-   *       Il magazziniere deve scansionare ogni sotto-elemento singolarmente.
-   *     → scan NFC su categoria SENZA sotto-elementi è sempre permesso.
-   * - Fasi 2 e 3 (scaffale_furgone, furgone_scaffale):
-   *     → scan NFC su categoria spunta automaticamente tutti i sotto-elementi.
+   * - Fasi 1 e 4: scan NFC su categoria CON sotto-elementi NON è permesso.
+   *               scan NFC su categoria SENZA sotto-elementi è sempre permesso.
+   * - Fasi 2 e 3: scan NFC su categoria spunta automaticamente tutti i sotto-elementi.
    */
   const handleNfcMatch = (scannedId) => {
     if (!materialData || materialData.length === 0) return;
@@ -149,7 +172,6 @@ export default function CheckPage({ params }) {
 
           const hasItems = category.items && category.items.length > 0;
 
-          // Se la categoria ha sotto-elementi e siamo in fase 1 o 4 → non consentito
           if (hasItems && !categoriaConsentita) {
             alert(
               `⛔ In questa fase devi scansionare ogni elemento singolarmente.\nScannerizza i singoli oggetti della categoria "${category.name}".`
@@ -163,19 +185,15 @@ export default function CheckPage({ params }) {
 
           setCheckedItems((prev) => {
             const updated = { ...prev };
-
             if (!hasItems) {
-              // Nessun sotto-elemento: usa chiave categoria
               updated[`${macro.id}-${category.id}`] = true;
             } else {
-              // Fasi 2 e 3: spunta tutti i sotto-elementi non mancanti
               category.items.forEach((item) => {
                 if (!item.materiale_mancante) {
                   updated[`${macro.id}-${category.id}-${item.id}`] = true;
                 }
               });
             }
-
             return updated;
           });
           break;
@@ -238,7 +256,7 @@ export default function CheckPage({ params }) {
     },
   ];
 
-  // --- HANDLERS ---
+  // --- HANDLER LOGIN ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -269,6 +287,7 @@ export default function CheckPage({ params }) {
     }
   };
 
+  // --- HANDLER SUBMIT CHECK ---
   const handleSubmitCheck = async () => {
     if (!partyData || !currentUser || !shelfId) return;
 
@@ -300,10 +319,31 @@ export default function CheckPage({ params }) {
         return;
       }
 
-      alert(result.message);
+      // Costruiamo lo snapshot degli elementi verificati per la fase di segnalazione
+      const snapshot = buildCheckedSnapshot();
+
+      setLastCheckId(result.checkId);
+      setLastPartyId(partyData.id);
+      setCheckedItemsSnapshot(snapshot);
+      // Inizializziamo lo stato danno per ogni item checkato
+      const initialDamageState = {};
+      snapshot.forEach((item) => {
+        initialDamageState[item.inventoryId] = {
+          enabled: false,
+          tipo: "danneggiato",
+          note: "",
+          valoreStimato: "",
+        };
+      });
+      setItemDamageState(initialDamageState);
+
+      // Reset check e mutate
       setCheckedItems({});
       setCheckType("");
       mutate();
+
+      // Passiamo alla fase di segnalazione perdite
+      setLossPhase("reporting");
     } catch (error) {
       console.error("[v0] Error submitting check:", error);
       alert("Errore durante l'invio del check. Riprova.");
@@ -311,6 +351,119 @@ export default function CheckPage({ params }) {
       setIsSubmitting(false);
     }
   };
+
+  /**
+   * Costruisce la lista flat di tutti gli elementi che sono stati checkati,
+   * con le loro informazioni per mostrarli nella schermata di segnalazione.
+   */
+  const buildCheckedSnapshot = () => {
+    const snapshot = [];
+
+    materialData.forEach((macro) => {
+      macro.categories.forEach((category) => {
+        if (!category.items || category.items.length === 0) {
+          // Categoria senza sotto-elementi
+          const categoryKey = `${macro.id}-${category.id}`;
+          if (checkedItems[categoryKey]) {
+            snapshot.push({
+              inventoryId: category.id,
+              name: category.name,
+              macroName: macro.name,
+              categoryName: null,
+            });
+          }
+        } else {
+          category.items.forEach((item) => {
+            const itemKey = `${macro.id}-${category.id}-${item.id}`;
+            if (checkedItems[itemKey] && !item.materiale_mancante) {
+              snapshot.push({
+                inventoryId: item.id,
+                name: item.name,
+                macroName: macro.name,
+                categoryName: category.name,
+              });
+            }
+          });
+        }
+      });
+    });
+
+    return snapshot;
+  };
+
+  // --- HANDLERS PERDITE ---
+  const toggleItemDamage = (inventoryId) => {
+    setItemDamageState((prev) => ({
+      ...prev,
+      [inventoryId]: {
+        ...prev[inventoryId],
+        enabled: !prev[inventoryId]?.enabled,
+      },
+    }));
+    // Apri automaticamente i dettagli quando si attiva il danno
+    if (!itemDamageState[inventoryId]?.enabled) {
+      setExpandedDamage((prev) => ({ ...prev, [inventoryId]: true }));
+    } else {
+      setExpandedDamage((prev) => ({ ...prev, [inventoryId]: false }));
+    }
+  };
+
+  const updateItemDamageField = (inventoryId, field, value) => {
+    setItemDamageState((prev) => ({
+      ...prev,
+      [inventoryId]: {
+        ...prev[inventoryId],
+        [field]: value,
+      },
+    }));
+  };
+
+  const toggleExpandedDamage = (inventoryId) => {
+    setExpandedDamage((prev) => ({ ...prev, [inventoryId]: !prev[inventoryId] }));
+  };
+
+  const handleSubmitLosses = async () => {
+    setIsSubmittingLosses(true);
+    try {
+      // Raccogliamo solo gli items con danno attivato
+      const losses = checkedItemsSnapshot
+        .filter((item) => itemDamageState[item.inventoryId]?.enabled)
+        .map((item) => {
+          const damage = itemDamageState[item.inventoryId];
+          return {
+            inventoryId: item.inventoryId,
+            tipo: damage.tipo,
+            quantita: 1,
+            valoreStimato: damage.valoreStimato ? Number(damage.valoreStimato) : null,
+            note: damage.note || null,
+          };
+        });
+
+      if (losses.length > 0) {
+        const result = await reportLosses(
+          lastCheckId,
+          lastPartyId,
+          currentUser.id,
+          losses
+        );
+
+        if (result.error) {
+          alert(`Errore nel salvataggio delle segnalazioni: ${result.error}`);
+          return;
+        }
+      }
+
+      setLossPhase("done");
+    } catch (error) {
+      console.error("[v0] Error submitting losses:", error);
+      alert("Errore durante il salvataggio. Riprova.");
+    } finally {
+      setIsSubmittingLosses(false);
+    }
+  };
+
+  // Quanti items hanno il danno attivato
+  const damagedCount = Object.values(itemDamageState).filter((v) => v?.enabled).length;
 
   // --- HELPER FUNCTIONS ---
   const getTotalItems = () => {
@@ -385,7 +538,6 @@ export default function CheckPage({ params }) {
     return uncheckedIds;
   };
 
-  // Helper: true se tutti gli items di una categoria sono checkati
   const isCategoryChecked = (macro, category) => {
     if (!category.items || category.items.length === 0) {
       return !!checkedItems[`${macro.id}-${category.id}`];
@@ -423,6 +575,30 @@ export default function CheckPage({ params }) {
           <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale {shelfId}</h1>
           <p className="text-muted-foreground mb-6">
             Non è stata trovata nessuna festa assegnata a questo scaffale. Contatta l'amministratore.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // FIX: Scaffale libero — la festa è completata
+  if (partyCompleted && lossPhase === "idle") {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale Libero</h1>
+          <p className="text-muted-foreground">
+            Tutti i check per la festa{" "}
+            <span className="font-semibold text-foreground">"{partyData?.nome}"</span> sono stati
+            completati. Lo scaffale <span className="font-semibold">{shelfId}</span> è ora
+            disponibile.
           </p>
         </motion.div>
       </div>
@@ -518,6 +694,245 @@ export default function CheckPage({ params }) {
               )}
             </button>
           </form>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // --- FASE SEGNALAZIONE PERDITE (post-check) ---
+  // Mostriamo ogni elemento checkato con una checkbox "Segnala problema"
+  // -----------------------------------------------------------------------
+  if (lossPhase === "reporting") {
+    // Raggruppiamo per macroName per leggibilità
+    const groupedByMacro = {};
+    checkedItemsSnapshot.forEach((item) => {
+      if (!groupedByMacro[item.macroName]) groupedByMacro[item.macroName] = [];
+      groupedByMacro[item.macroName].push(item);
+    });
+
+    return (
+      <div className="min-h-screen bg-surface pb-28">
+        <div className="containerMod py-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-2xl mx-auto"
+          >
+            {/* Header */}
+            <div className="bg-card p-6 rounded-xl border border-border mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-foreground">Segnala Problemi</h1>
+                  <p className="text-sm text-muted-foreground">
+                    Check completato ✓ — Spunta gli elementi con problemi e specifica il tipo.
+                  </p>
+                </div>
+              </div>
+              {damagedCount > 0 && (
+                <div className="mt-4 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">
+                  {damagedCount} element{damagedCount === 1 ? "o segnalato" : "i segnalati"}
+                </div>
+              )}
+            </div>
+
+            {/* Lista elementi per macro */}
+            <div className="space-y-6 mb-6">
+              {Object.entries(groupedByMacro).map(([macroName, items]) => (
+                <div key={macroName} className="bg-card rounded-xl border border-border overflow-hidden">
+                  {/* Header macro */}
+                  <div className="px-4 py-3 bg-surface border-b border-border flex items-center gap-2">
+                    <Package className="w-4 h-4 text-primary" />
+                    <span className="font-semibold text-foreground text-sm">{macroName}</span>
+                  </div>
+
+                  {/* Items */}
+                  <div className="divide-y divide-border">
+                    {items.map((item) => {
+                      const damageState = itemDamageState[item.inventoryId] || {};
+                      const isDamaged = damageState.enabled;
+                      const isExpanded = expandedDamage[item.inventoryId];
+
+                      return (
+                        <div key={item.inventoryId} className="p-4">
+                          {/* Riga principale: nome + checkbox */}
+                          <div className="flex items-center gap-3">
+                            {/* Icona check (sempre verde, è già verificato) */}
+                            <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+
+                            {/* Nome elemento */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">
+                                {item.name}
+                              </p>
+                              {item.categoryName && (
+                                <p className="text-xs text-muted-foreground">{item.categoryName}</p>
+                              )}
+                            </div>
+
+                            {/* Checkbox segnala problema */}
+                            <label className="flex items-center gap-2 cursor-pointer shrink-0 select-none">
+                              <span className={`text-xs font-semibold ${isDamaged ? "text-red-600" : "text-muted-foreground"}`}>
+                                Problema
+                              </span>
+                              <div
+                                onClick={() => toggleItemDamage(item.inventoryId)}
+                                className={`w-10 h-6 rounded-full transition-colors relative cursor-pointer ${
+                                  isDamaged ? "bg-red-500" : "bg-gray-200"
+                                }`}
+                              >
+                                <div
+                                  className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                                    isDamaged ? "translate-x-5" : "translate-x-1"
+                                  }`}
+                                />
+                              </div>
+                            </label>
+                          </div>
+
+                          {/* Dettagli danno (visibili solo se il problema è attivato) */}
+                          <AnimatePresence>
+                            {isDamaged && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="mt-3 pt-3 border-t border-border space-y-3">
+                                  {/* Tipo problema */}
+                                  <div>
+                                    <p className="text-xs font-medium text-foreground mb-2">Tipo problema</p>
+                                    <div className="flex gap-2">
+                                      {LOSS_TYPES.map((type) => (
+                                        <button
+                                          key={type.id}
+                                          onClick={() =>
+                                            updateItemDamageField(item.inventoryId, "tipo", type.id)
+                                          }
+                                          className={`flex-1 py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all ${
+                                            damageState.tipo === type.id
+                                              ? type.color + " ring-1 ring-offset-1"
+                                              : "bg-surface border-border text-muted-foreground"
+                                          }`}
+                                        >
+                                          {type.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Valore stimato */}
+                                  <div>
+                                    <p className="text-xs font-medium text-foreground mb-1">
+                                      Valore stimato (€) — opzionale
+                                    </p>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder="es. 15.00"
+                                      value={damageState.valoreStimato || ""}
+                                      onChange={(e) =>
+                                        updateItemDamageField(
+                                          item.inventoryId,
+                                          "valoreStimato",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                                    />
+                                  </div>
+
+                                  {/* Note */}
+                                  <div>
+                                    <p className="text-xs font-medium text-foreground mb-1">
+                                      Note — opzionale
+                                    </p>
+                                    <textarea
+                                      rows={2}
+                                      placeholder="Descrivi il problema..."
+                                      value={damageState.note || ""}
+                                      onChange={(e) =>
+                                        updateItemDamageField(item.inventoryId, "note", e.target.value)
+                                      }
+                                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm resize-none"
+                                    />
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Bottone invio — sticky in fondo */}
+            <div className="sticky bottom-4">
+              <button
+                onClick={handleSubmitLosses}
+                disabled={isSubmittingLosses}
+                className="w-full btn-primary py-4 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-xl"
+              >
+                {isSubmittingLosses ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Salvataggio...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    <span>
+                      {damagedCount > 0
+                        ? `Invia ${damagedCount} segnalazion${damagedCount === 1 ? "e" : "i"}`
+                        : "Nessun problema — Conferma"}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- FASE COMPLETATA DOPO SEGNALAZIONE ---
+  if (lossPhase === "done") {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Tutto Completato!</h1>
+          <p className="text-muted-foreground mb-6">
+            Check e segnalazioni salvati con successo.
+          </p>
+          <button
+            onClick={() => {
+              setLossPhase("idle");
+              setLastCheckId(null);
+              setLastPartyId(null);
+              setCheckedItemsSnapshot([]);
+              setItemDamageState({});
+              mutate();
+            }}
+            className="btn-primary w-full"
+          >
+            Torna alla Pagina
+          </button>
         </motion.div>
       </div>
     );
@@ -664,7 +1079,6 @@ export default function CheckPage({ params }) {
   }
 
   // --- LISTA ITEMS (MAIN) ---
-  // In fasi 1 e 4 la categoria con sotto-elementi NON può essere scansionata direttamente
   const categoriaConsentita = FASI_CATEGORIA_CONSENTITA.includes(checkType);
 
   return (
@@ -745,12 +1159,10 @@ export default function CheckPage({ params }) {
                   {macro.categories.map((category) => {
                     const catChecked = isCategoryChecked(macro, category);
                     const hasItems = category.items && category.items.length > 0;
-                    // In fasi 1/4 con sotto-elementi: la categoria non è scansionabile direttamente
-                    const categoryIsBlocked = hasItems && !categoriaConsentita;
 
                     return (
                       <div key={category.id} className="border border-border rounded-lg p-4">
-                        {/* Header categoria con stato di completamento */}
+                        {/* Header categoria */}
                         <div className="flex items-center gap-2 mb-3">
                           {catChecked ? (
                             <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
@@ -764,7 +1176,6 @@ export default function CheckPage({ params }) {
                           >
                             {category.name}
                           </h4>
-                          {/* Badge informativo sulla modalità di scan */}
                           {hasItems && (
                             <span
                               className={`text-xs px-2 py-0.5 rounded ml-1 ${
@@ -783,7 +1194,7 @@ export default function CheckPage({ params }) {
                           )}
                         </div>
 
-                        {/* Categoria senza sotto-elementi → sempre scansionabile direttamente */}
+                        {/* Categoria senza sotto-elementi */}
                         {!hasItems ? (
                           <div
                             className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
