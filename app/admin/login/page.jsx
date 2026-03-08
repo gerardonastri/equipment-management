@@ -2,16 +2,27 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, Mail, Lock, Eye, EyeOff, AlertCircle, ArrowLeft, CheckCircle } from "lucide-react";
-import { loginAdmin, requestPasswordReset } from "./actions";
+import {
+  Shield,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle,
+} from "lucide-react";
+import { loginAdmin, resetPasswordDirect } from "./actions";
 
 export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // "login" | "forgot" | "forgot-sent"
+  // "login" | "reset" | "reset-done"
   const [view, setView] = useState("login");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState("");
 
@@ -23,39 +34,43 @@ export default function AdminLoginPage() {
     try {
       const formData = new FormData(e.target);
       const result = await loginAdmin(formData);
-
       if (result?.error) {
         setError(result.error);
       }
-      // Se non c'è errore, la Server Action farà il redirect
-    } catch (error) {
-      console.error("[v0] Login error:", error);
+    } catch (err) {
+      console.error("[v0] Login error:", err);
       setError("Errore durante il login");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleResetRequest = async (e) => {
+  const handleReset = async (e) => {
     e.preventDefault();
     setResetLoading(true);
     setResetError("");
 
     try {
       const formData = new FormData(e.target);
-      const result = await requestPasswordReset(formData);
+      const result = await resetPasswordDirect(formData);
 
       if (result?.error) {
         setResetError(result.error);
       } else {
-        setView("forgot-sent");
+        setView("reset-done");
       }
     } catch (err) {
-      console.error("[v0] Reset request error:", err);
-      setResetError("Errore durante l'invio. Riprova.");
+      console.error("[v0] Reset error:", err);
+      setResetError("Errore imprevisto. Riprova.");
     } finally {
       setResetLoading(false);
     }
+  };
+
+  const goToLogin = () => {
+    setView("login");
+    setError("");
+    setResetError("");
   };
 
   return (
@@ -66,9 +81,9 @@ export default function AdminLoginPage() {
         className="w-full max-w-md"
       >
         <div className="bg-white rounded-2xl shadow-xl p-8">
-
-          {/* ── VISTA LOGIN ── */}
           <AnimatePresence mode="wait">
+
+            {/* ──────────── VIEW: LOGIN ──────────── */}
             {view === "login" && (
               <motion.div
                 key="login"
@@ -76,7 +91,6 @@ export default function AdminLoginPage() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
               >
-                {/* Header */}
                 <div className="text-center mb-8">
                   <div className="w-16 h-16 bg-gradient-to-r from-red-500 to-orange-500 rounded-xl flex items-center justify-center mx-auto mb-4">
                     <Shield className="w-8 h-8 text-white" />
@@ -87,7 +101,6 @@ export default function AdminLoginPage() {
                   </p>
                 </div>
 
-                {/* Error */}
                 {error && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
@@ -99,14 +112,13 @@ export default function AdminLoginPage() {
                   </motion.div>
                 )}
 
-                {/* Form login */}
                 <form onSubmit={handleLogin} className="space-y-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Email
                     </label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type="email"
                         name="email"
@@ -122,7 +134,7 @@ export default function AdminLoginPage() {
                       Password
                     </label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type={showPassword ? "text" : "password"}
                         name="password"
@@ -133,7 +145,7 @@ export default function AdminLoginPage() {
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                       >
                         {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
@@ -144,7 +156,7 @@ export default function AdminLoginPage() {
                   <div className="flex justify-end -mt-2">
                     <button
                       type="button"
-                      onClick={() => { setView("forgot"); setError(""); }}
+                      onClick={() => { setView("reset"); setError(""); }}
                       className="text-sm text-red-500 hover:text-red-700 font-medium transition-colors"
                     >
                       Password dimenticata?
@@ -167,7 +179,6 @@ export default function AdminLoginPage() {
                   </button>
                 </form>
 
-                {/* Security Notice */}
                 <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-start space-x-2">
                     <Shield className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
@@ -183,26 +194,24 @@ export default function AdminLoginPage() {
               </motion.div>
             )}
 
-            {/* ── VISTA FORGOT PASSWORD ── */}
-            {view === "forgot" && (
+            {/* ──────────── VIEW: RESET PASSWORD ──────────── */}
+            {view === "reset" && (
               <motion.div
-                key="forgot"
+                key="reset"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
               >
-                {/* Header */}
                 <div className="text-center mb-8">
                   <div className="w-16 h-16 bg-gradient-to-r from-orange-400 to-yellow-500 rounded-xl flex items-center justify-center mx-auto mb-4">
-                    <Mail className="w-8 h-8 text-white" />
+                    <Lock className="w-8 h-8 text-white" />
                   </div>
                   <h1 className="text-2xl font-bold text-gray-900">Reimposta Password</h1>
                   <p className="text-gray-600 mt-2 text-sm">
-                    Inserisci la tua email e ti invieremo un link per reimpostare la password.
+                    Inserisci la tua email e scegli una nuova password.
                   </p>
                 </div>
 
-                {/* Error */}
                 {resetError && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
@@ -214,13 +223,14 @@ export default function AdminLoginPage() {
                   </motion.div>
                 )}
 
-                <form onSubmit={handleResetRequest} className="space-y-5">
+                <form onSubmit={handleReset} className="space-y-5">
+                  {/* Email */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email
+                      Email account
                     </label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type="email"
                         name="email"
@@ -232,6 +242,56 @@ export default function AdminLoginPage() {
                     </div>
                   </div>
 
+                  {/* Nuova password */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Nuova password
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type={showNewPassword ? "text" : "password"}
+                        name="password"
+                        minLength={6}
+                        className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        placeholder="Minimo 6 caratteri"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Conferma password */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Conferma password
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        name="confirmPassword"
+                        minLength={6}
+                        className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        placeholder="Ripeti la password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={resetLoading}
@@ -240,17 +300,17 @@ export default function AdminLoginPage() {
                     {resetLoading ? (
                       <div className="flex items-center justify-center space-x-2">
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Invio in corso...</span>
+                        <span>Aggiornamento...</span>
                       </div>
                     ) : (
-                      "Invia link di reset"
+                      "Imposta nuova password"
                     )}
                   </button>
                 </form>
 
                 <button
                   type="button"
-                  onClick={() => { setView("login"); setResetError(""); }}
+                  onClick={goToLogin}
                   className="mt-5 w-full flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -259,10 +319,10 @@ export default function AdminLoginPage() {
               </motion.div>
             )}
 
-            {/* ── VISTA CONFERMA EMAIL INVIATA ── */}
-            {view === "forgot-sent" && (
+            {/* ──────────── VIEW: RESET COMPLETATO ──────────── */}
+            {view === "reset-done" && (
               <motion.div
-                key="forgot-sent"
+                key="reset-done"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
@@ -271,31 +331,25 @@ export default function AdminLoginPage() {
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <CheckCircle className="w-8 h-8 text-green-600" />
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">Email Inviata</h1>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                  Password Aggiornata!
+                </h1>
                 <p className="text-gray-600 text-sm mb-8">
-                  Se l'indirizzo è registrato, riceverai un'email con il link per reimpostare la password.
-                  Controlla anche la cartella spam.
+                  La tua password è stata reimpostata con successo.
+                  Puoi ora accedere con le nuove credenziali.
                 </p>
-
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg mb-6 text-left">
-                  <p className="text-xs text-amber-800">
-                    <span className="font-semibold">Il link scade in 1 ora.</span>{" "}
-                    Se non ricevi l'email entro qualche minuto, riprova o contatta il supporto tecnico.
-                  </p>
-                </div>
 
                 <button
                   type="button"
-                  onClick={() => { setView("login"); setResetError(""); }}
-                  className="w-full flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                  onClick={goToLogin}
+                  className="w-full bg-gradient-to-r from-red-500 to-orange-500 text-white py-3 px-4 rounded-lg font-medium hover:from-red-600 hover:to-orange-600 transition-all duration-200"
                 >
-                  <ArrowLeft className="w-4 h-4" />
-                  Torna al login
+                  Vai al Login
                 </button>
               </motion.div>
             )}
-          </AnimatePresence>
 
+          </AnimatePresence>
         </div>
       </motion.div>
     </div>

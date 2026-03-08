@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 
 export async function loginAdmin(formData) {
@@ -42,47 +43,20 @@ export async function loginAdmin(formData) {
 }
 
 /**
- * Invia l'email di reset password tramite Supabase Auth.
- * Supabase manderà un link che punta a /admin/login/reset-password
- * con i token necessari nell'URL.
+ * Reimposta la password direttamente senza email.
+ * Usa il service role key per trovare l'utente per email
+ * e aggiornare la password tramite Admin API.
+ *
+ * Richiede SUPABASE_SERVICE_ROLE_KEY nelle variabili d'ambiente.
  */
-export async function requestPasswordReset(formData) {
+export async function resetPasswordDirect(formData) {
   const email = formData.get("email");
-
-  if (!email) {
-    return { error: "Inserisci un indirizzo email valido." };
-  }
-
-  const supabase = await createClient();
-
-  const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${siteUrl}/admin/login/reset-password`,
-  });
-
-  // Non riveliamo se l'email esiste o no per sicurezza
-  if (error) {
-    console.error("[v0] Reset password error:", error);
-    // Restituiamo success comunque per non rivelare se l'email esiste
-  }
-
-  return {
-    success: true,
-    message:
-      "Se l'email è registrata, riceverai un link per reimpostare la password.",
-  };
-}
-
-/**
- * Aggiorna la password dell'utente autenticato tramite il token di reset.
- * Viene chiamata dalla pagina /admin/login/reset-password dopo che
- * Supabase ha già verificato il token nell'URL e ha creato una sessione.
- */
-export async function updatePassword(formData) {
   const password = formData.get("password");
   const confirmPassword = formData.get("confirmPassword");
+
+  if (!email) {
+    return { error: "Inserisci l'email." };
+  }
 
   if (!password || password.length < 6) {
     return { error: "La password deve essere di almeno 6 caratteri." };
@@ -92,13 +66,57 @@ export async function updatePassword(formData) {
     return { error: "Le password non corrispondono." };
   }
 
-  const supabase = await createClient();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const { error } = await supabase.auth.updateUser({ password });
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error("[v0] Missing SUPABASE_SERVICE_ROLE_KEY env variable");
+    return { error: "Configurazione server mancante. Contatta l'amministratore di sistema." };
+  }
 
-  if (error) {
-    console.error("[v0] Update password error:", error);
-    return { error: "Errore durante l'aggiornamento della password. Il link potrebbe essere scaduto." };
+  // Client con service role — bypassa RLS e ha accesso Admin API
+  const adminClient = createServiceClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  // 1. Cerca l'utente per email tramite Admin API
+  const { data: listData, error: listError } = await adminClient.auth.admin.listUsers();
+
+  if (listError) {
+    console.error("[v0] Error listing users:", listError);
+    return { error: "Errore nel recupero dell'utente." };
+  }
+
+  const user = listData.users.find(
+    (u) => u.email?.toLowerCase() === email.toLowerCase().trim()
+  );
+
+  if (!user) {
+    // Non riveliamo se l'email esiste per sicurezza minima
+    return { error: "Nessun account trovato con questa email." };
+  }
+
+  // 2. Verifica che sia un amministratore nella tabella users
+  const regularClient = await createClient();
+  const { data: userData, error: userError } = await regularClient
+    .from("users")
+    .select("ruolo")
+    .eq("id", user.id)
+    .single();
+
+  if (userError || !userData || userData.ruolo !== "amministratore") {
+    return { error: "Account non autorizzato al reset della password." };
+  }
+
+  // 3. Aggiorna la password tramite Admin API
+  const { error: updateError } = await adminClient.auth.admin.updateUserById(
+    user.id,
+    { password }
+  );
+
+  if (updateError) {
+    console.error("[v0] Error updating password:", updateError);
+    return { error: "Errore durante l'aggiornamento della password." };
   }
 
   return { success: true };
