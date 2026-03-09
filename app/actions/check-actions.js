@@ -116,12 +116,20 @@ export async function getPartyDataForShelf(shelfId) {
       materialHierarchy.push(macroData);
     }
 
+    // Carica le segnalazioni già presenti per questa festa
+    // così la pagina sa quali elementi sono già stati segnalati
+    const { data: existingLosses } = await supabase
+      .from("inventory_losses")
+      .select("inventory_id, tipo, note, valore_stimato")
+      .eq("party_id", party.id);
+
     console.log("[v0] Final material hierarchy:", materialHierarchy);
 
     return {
       party,
       checks: checks || [],
       materialHierarchy,
+      existingLosses: existingLosses || [],
     };
   } catch (error) {
     console.error("[v0] Error fetching party data:", error);
@@ -133,10 +141,8 @@ export async function authenticateUser(name, code) {
   try {
     const supabase = await createClient();
 
-    // Convert name to lowercase for case-insensitive comparison
     const normalizedName = name.toLowerCase().trim();
 
-    // Use ilike for case-insensitive search in PostgreSQL
     const { data: user, error } = await supabase
       .from("users")
       .select("*")
@@ -252,7 +258,6 @@ export async function submitCheck(
       }
     }
 
-    // Restituiamo l'ID del check creato per poterlo collegare alle perdite
     const { data: insertedCheck, error: insertError } = await supabase
       .from("checks")
       .insert({
@@ -344,13 +349,64 @@ export async function submitCheck(
 }
 
 /**
- * Salva le segnalazioni di materiale perso/danneggiato/rubato
- * nella tabella inventory_losses.
+ * Salva IMMEDIATAMENTE una segnalazione di danneggiato/rubato
+ * su un singolo elemento durante il check (prima del submit).
  *
- * @param {string} checkId  - ID del check appena completato
- * @param {string} partyId  - ID della festa
- * @param {string} userId   - ID dell'utente che segnala
- * @param {Array}  losses   - Array di { inventoryId, tipo, quantita, valoreStimato, note }
+ * - Inserisce in inventory_losses
+ * - Mette materiale_mancante: true sull'item così persiste nei check futuri
+ *
+ * @param {string} inventoryId  - ID dell'elemento
+ * @param {string} partyId      - ID della festa
+ * @param {string} userId       - ID dell'utente che segnala
+ * @param {string} tipo         - 'danneggiato' | 'rubato'
+ * @param {number|null} valoreStimato
+ * @param {string|null} note
+ */
+export async function reportItemDamage(
+  inventoryId,
+  partyId,
+  userId,
+  tipo,
+  valoreStimato,
+  note
+) {
+  try {
+    const supabase = await createClient();
+
+    // 1. Inserisci in inventory_losses (senza check_id — verrà creato dopo)
+    const { error: lossError } = await supabase.from("inventory_losses").insert({
+      inventory_id: inventoryId,
+      party_id: partyId,
+      check_id: null,
+      tipo,
+      quantita: 1,
+      valore_stimato: valoreStimato || null,
+      note: note || null,
+      reported_by: userId,
+    });
+
+    if (lossError) throw lossError;
+
+    // 2. Marca l'elemento come mancante/fuori uso così nei check futuri
+    //    appare disabilitato esattamente come gli elementi mancanti
+    const { error: itemError } = await supabase
+      .from("inventory_items")
+      .update({ materiale_mancante: true })
+      .eq("id", inventoryId);
+
+    if (itemError) throw itemError;
+
+    console.log("[v0] Item damage reported and marked:", inventoryId, tipo);
+    return { success: true };
+  } catch (error) {
+    console.error("[v0] Error reporting item damage:", error);
+    return { error: error.message };
+  }
+}
+
+/**
+ * Salva le segnalazioni di materiale perso/danneggiato/rubato
+ * nella tabella inventory_losses (fase post-check).
  */
 export async function reportLosses(checkId, partyId, userId, losses) {
   try {
@@ -364,7 +420,7 @@ export async function reportLosses(checkId, partyId, userId, losses) {
       inventory_id: loss.inventoryId,
       party_id: partyId,
       check_id: checkId,
-      tipo: loss.tipo, // 'mancante' | 'danneggiato' | 'rubato'
+      tipo: loss.tipo,
       quantita: loss.quantita || 1,
       valore_stimato: loss.valoreStimato || null,
       note: loss.note || null,
