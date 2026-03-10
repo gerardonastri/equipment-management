@@ -8,17 +8,73 @@ export async function getInventoryItems() {
   try {
     const supabase = await createClient();
 
+    // Carica tutti gli items con le loro perdite aggregate
     const { data, error } = await supabase
       .from("inventory_items")
-      .select("*")
+      .select(`
+        *,
+        inventory_losses(tipo)
+      `)
       .order("name");
 
     if (error) throw error;
 
-    return data || [];
+    // Aggiunge campi derivati per filtri rapidi lato client
+    return (data || []).map((item) => {
+      const lossTypes = new Set((item.inventory_losses || []).map((l) => l.tipo));
+      return {
+        ...item,
+        _hasDanneggiato: lossTypes.has("danneggiato"),
+        _hasRubato: lossTypes.has("rubato"),
+        // inventory_losses non serve più dopo, rimuoviamo per leggerezza
+        inventory_losses: undefined,
+      };
+    });
   } catch (error) {
     console.error("[v0] Error fetching inventory:", error);
     return [];
+  }
+}
+
+/**
+ * Carica i dettagli completi di un item:
+ * - figli diretti (categorie se macro, sotto se categoria)
+ * - perdite registrate (inventory_losses) con info reporter e festa
+ */
+export async function getItemDetails(itemId) {
+  try {
+    const supabase = await createClient();
+
+    const { data: children, error: childError } = await supabase
+      .from("inventory_items")
+      .select("*")
+      .eq("parent_id", itemId)
+      .order("name");
+
+    if (childError) throw childError;
+
+    const { data: losses, error: lossError } = await supabase
+      .from("inventory_losses")
+      .select(`
+        id,
+        tipo,
+        quantita,
+        valore_stimato,
+        note,
+        created_at,
+        reported_by,
+        reporter:reported_by(nome),
+        party:party_id(nome, data)
+      `)
+      .eq("inventory_id", itemId)
+      .order("created_at", { ascending: false });
+
+    if (lossError) throw lossError;
+
+    return { children: children || [], losses: losses || [] };
+  } catch (error) {
+    console.error("[v0] Error fetching item details:", error);
+    return { children: [], losses: [] };
   }
 }
 
@@ -28,15 +84,13 @@ export async function createInventoryItem(formData) {
 
     const { data, error } = await supabase
       .from("inventory_items")
-      .insert([
-        {
-          name: formData.name,
-          type: formData.type,
-          parent_id: formData.parent_id || null,
-          materiale_mancante: formData.materiale_mancante || false,
-          image_url: formData.image_url || null,
-        },
-      ])
+      .insert([{
+        name: formData.name,
+        type: formData.type,
+        parent_id: formData.parent_id || null,
+        materiale_mancante: formData.materiale_mancante || false,
+        image_url: formData.image_url || null,
+      }])
       .select();
 
     if (error) throw error;
@@ -104,24 +158,19 @@ export async function uploadInventoryImage(itemId, file) {
     const supabase = createServiceClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: { persistSession: false },
-      }
+      { auth: { persistSession: false } }
     );
 
     const fileExt = file.name.split(".").pop();
     const fileName = `${itemId}-${Date.now()}.${fileExt}`;
-    const filePath = fileName;
 
     const { error: uploadError } = await supabase.storage
       .from("inventory")
-      .upload(filePath, file, { upsert: true });
+      .upload(fileName, file, { upsert: true });
 
     if (uploadError) throw uploadError;
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("inventory").getPublicUrl(filePath);
+    const { data: { publicUrl } } = supabase.storage.from("inventory").getPublicUrl(fileName);
 
     const { error: updateError } = await supabase
       .from("inventory_items")
