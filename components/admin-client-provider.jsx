@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase/client";
+import  { supabaseBrowserClient as supabase }from "@/lib/supabase/client";
 
 const AdminContext = createContext({});
 
@@ -24,8 +24,7 @@ export default function AdminClientProvider({ children, initialUser }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_OUT") {
         setUser(null);
-        router.push("/admin/login");
-        router.refresh();
+        router.replace("/admin/login");
       }
     });
 
@@ -36,8 +35,7 @@ export default function AdminClientProvider({ children, initialUser }) {
     try {
       await supabase.auth.signOut();
       setUser(null);
-      router.push("/admin/login");
-      router.refresh();
+      router.replace("/admin/login");
     } catch (error) {
       console.error("Error signing out:", error);
     }
