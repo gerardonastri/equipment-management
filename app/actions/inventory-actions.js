@@ -8,25 +8,27 @@ export async function getInventoryItems() {
   try {
     const supabase = await createClient();
 
-    // Carica tutti gli items con le loro perdite aggregate
     const { data, error } = await supabase
       .from("inventory_items")
       .select(`
         *,
-        inventory_losses(tipo)
+        inventory_losses(tipo, resolved)
       `)
       .order("name");
 
     if (error) throw error;
 
-    // Aggiunge campi derivati per filtri rapidi lato client
     return (data || []).map((item) => {
-      const lossTypes = new Set((item.inventory_losses || []).map((l) => l.tipo));
+      // Solo le losses NON resolved contano per i filtri attivi
+      const activeLossTypes = new Set(
+        (item.inventory_losses || [])
+          .filter((l) => !l.resolved)
+          .map((l) => l.tipo)
+      );
       return {
         ...item,
-        _hasDanneggiato: lossTypes.has("danneggiato"),
-        _hasRubato: lossTypes.has("rubato"),
-        // inventory_losses non serve più dopo, rimuoviamo per leggerezza
+        _hasDanneggiato: activeLossTypes.has("danneggiato"),
+        _hasRubato: activeLossTypes.has("rubato"),
         inventory_losses: undefined,
       };
     });
@@ -36,11 +38,6 @@ export async function getInventoryItems() {
   }
 }
 
-/**
- * Carica i dettagli completi di un item:
- * - figli diretti (categorie se macro, sotto se categoria)
- * - perdite registrate (inventory_losses) con info reporter e festa
- */
 export async function getItemDetails(itemId) {
   try {
     const supabase = await createClient();
@@ -62,6 +59,7 @@ export async function getItemDetails(itemId) {
         valore_stimato,
         note,
         created_at,
+        resolved,
         reported_by,
         reporter:reported_by(nome),
         party:party_id(nome, data)
@@ -75,6 +73,37 @@ export async function getItemDetails(itemId) {
   } catch (error) {
     console.error("[v0] Error fetching item details:", error);
     return { children: [], losses: [] };
+  }
+}
+
+/**
+ * Rimuove TUTTE le segnalazioni di un tipo specifico per un item
+ * marcandole come resolved (non cancella per mantenere lo storico).
+ */
+export async function removeLossByType(itemId, tipo) {
+  try {
+    const supabase = await createClient();
+
+    const { error } = await supabase
+      .from("inventory_losses")
+      .update({ resolved: true })
+      .eq("inventory_id", itemId)
+      .eq("tipo", tipo);
+
+    if (error) throw error;
+
+    if (tipo === "mancante") {
+      await supabase
+        .from("inventory_items")
+        .update({ materiale_mancante: false })
+        .eq("id", itemId);
+    }
+
+    revalidatePath("/admin/inventory");
+    return { success: true };
+  } catch (error) {
+    console.error("[v0] Error removing losses:", error);
+    return { error: error.message };
   }
 }
 
@@ -125,6 +154,17 @@ export async function updateInventoryItem(id, formData) {
       .select();
 
     if (error) throw error;
+
+    // Se l'item viene rimesso come disponibile (materiale_mancante = false),
+    // segna tutte le sue losses come resolved per non impattare sul check
+    // e sulle segnalazioni attive — le righe rimangono per lo storico.
+    if (!formData.materiale_mancante) {
+      await supabase
+        .from("inventory_losses")
+        .update({ resolved: true })
+        .eq("inventory_id", id)
+        .eq("resolved", false);
+    }
 
     revalidatePath("/admin/inventory");
     return { success: true, data: data[0] };

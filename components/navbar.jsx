@@ -14,6 +14,7 @@ import {
   X,
   History,
   ChartBar,
+  Warehouse
 } from "lucide-react";
 import { useAdmin } from "@/components/admin-client-provider";
 import { useState } from "react";
@@ -30,6 +31,7 @@ export default function Navbar() {
     { href: "/admin/inventory", label: "Inventario", icon: Package },
     { href: "/admin/parties", label: "Feste", icon: Calendar },
     { href: "/admin/users", label: "Utenti", icon: Users },
+    { href: "/admin/shelves", label: "Scaffali", icon: Warehouse },
     // { href: "/admin/reports", label: "Report", icon: BarChart3 },
     { href: "/admin/analytics", label: "Grafici", icon: ChartBar },
     { href: "/admin/checks-history", label: "Storico Check", icon: History },

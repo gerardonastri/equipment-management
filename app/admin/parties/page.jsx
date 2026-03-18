@@ -1,16 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import useSWR from "swr";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  Plus,
-  Search,
-  Package,
-  Clock,
-  Truck,
-  Home,
-  Warehouse,
+  Plus, Search, Package, Clock, Truck, Home, Warehouse,
+  RefreshCw, CalendarDays, CheckCircle2, XCircle, WifiOff,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { PartyCard } from "@/components/parties/party-card";
@@ -26,12 +21,54 @@ import {
   removeMaterial,
   updateParty,
   getPartyHistory,
+  syncPartiesByDate,
+  getPartiesByDate,
+  getUsedMacroIds,
+  getAvailableItemsForSpecialParty,
 } from "./actions";
 import { cacheManager } from "@/lib/cache/db";
 
 const fetcher = () => getPartiesData();
 
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function SyncStatusBar({ status, rowsFetched, rowsUpserted, errorMsg, onRetry }) {
+  if (!status) return null;
+  const configs = {
+    syncing: { icon: <RefreshCw className="w-4 h-4 animate-spin" />, text: "Sincronizzazione in corso...", cls: "bg-blue-50 border-blue-200 text-blue-700" },
+    fresh:   { icon: <CheckCircle2 className="w-4 h-4" />, text: "Dati già aggiornati (< 10 min)", cls: "bg-green-50 border-green-200 text-green-700" },
+    success: { icon: <CheckCircle2 className="w-4 h-4" />, text: `Sincronizzati ${rowsUpserted} eventi (${rowsFetched} trovati)`, cls: "bg-green-50 border-green-200 text-green-700" },
+    empty:   { icon: <CalendarDays className="w-4 h-4" />, text: "Nessun evento nell'API per questa data", cls: "bg-yellow-50 border-yellow-200 text-yellow-700" },
+    error:   { icon: <XCircle className="w-4 h-4" />, text: `Errore sync: ${errorMsg}`, cls: "bg-red-50 border-red-200 text-red-700" },
+  };
+  const cfg = configs[status];
+  if (!cfg) return null;
+  return (
+    <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium ${cfg.cls}`}>
+      {cfg.icon}
+      <span>{cfg.text}</span>
+      {status === "error" && <button onClick={onRetry} className="ml-auto underline text-xs hover:no-underline">Riprova</button>}
+    </motion.div>
+  );
+}
+
 export default function PartiesPage() {
+  // ── Sync / date ──
+  const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [syncMeta, setSyncMeta] = useState({ rowsFetched: 0, rowsUpserted: 0, errorMsg: "" });
+  const [syncedParties, setSyncedParties] = useState(null);
+  const [loadingSynced, setLoadingSynced] = useState(false);
+  const debounceRef = useRef(null);
+
+  // ── Disponibilità macro ──
+  const [usedMacroIds, setUsedMacroIds] = useState(new Set());
+
+  // ── Form party ──
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState([]);
   const [showFormModal, setShowFormModal] = useState(false);
@@ -41,22 +78,14 @@ export default function PartiesPage() {
   const [partyMaterials, setPartyMaterials] = useState([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
   const [newParty, setNewParty] = useState({
-    nome: "",
-    data: "",
-    luogo: "",
-    animatore_id: "",
-    magazziniere_id: "",
-    stato: "iniziale",
-    note: "",
-    shelves: [],
+    nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [],
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
+  const [selectedSingleItems, setSelectedSingleItems] = useState([]);
+  const [specialItemHierarchy, setSpecialItemHierarchy] = useState([]);
 
-  // --- STORICO ---
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyParty, setHistoryParty] = useState(null);
-
-  // Mappa partyId → { lossCount, hasMissingMaterial } per gli alert
   const [partyAlerts, setPartyAlerts] = useState({});
 
   const { data, error, isLoading, mutate } = useSWR("parties-data", fetcher, {
@@ -64,162 +93,148 @@ export default function PartiesPage() {
     revalidateOnReconnect: true,
   });
 
-  useEffect(() => {
-    if (data?.parties) {
-      cacheManager.cacheParties(data.parties).catch(console.error);
-      cacheManager.cacheUsers(data.users || []).catch(console.error);
-      cacheManager.cacheMacros(data.macroCategories || []).catch(console.error);
-      loadPartyAlerts(data.parties);
-    }
-  }, [data]);
-
-  useEffect(() => {
-    const loadOfflineData = async () => {
-      if (!navigator.onLine && (error || !data)) {
-        const [parties, users, macroCategories] = await Promise.all([
-          cacheManager.getPartiesFromCache(),
-          cacheManager.getUsersFromCache(),
-          cacheManager.getMacrosFromCache(),
-        ]);
-
-        if (parties?.length > 0) {
-          mutate(
-            {
-              parties,
-              users: users || [],
-              macroCategories: macroCategories || [],
-            },
-            false
-          );
-        }
-      }
-    };
-    loadOfflineData().catch(console.error);
-  }, [error, navigator.onLine]);
-
-  const parties = data?.parties || [];
   const users = data?.users || [];
   const macroCategories = data?.macroCategories || [];
+  const parties = syncedParties ?? [];
 
-  /**
-   * Carica in background i conteggi di perdite per ogni festa
-   * per mostrare i badge di alert sulle card.
-   */
-  const loadPartyAlerts = async (partiesList) => {
+  // ── Sync ──
+  const runSyncForDate = useCallback(async (date) => {
+    setLoadingSynced(true);
+    setSyncStatus("syncing");
+    setSyncedParties(null);
+    try {
+      const result = await syncPartiesByDate(date);
+      if (result.error) {
+        setSyncStatus("error");
+        setSyncMeta((m) => ({ ...m, errorMsg: result.error }));
+        const fallback = await getPartiesByDate(date);
+        setSyncedParties(fallback);
+        loadAlertsForParties(fallback);
+        return;
+      }
+      if (result.alreadyFresh) setSyncStatus("fresh");
+      else if (result.skipped && !result.alreadyFresh) setSyncStatus("empty");
+      else { setSyncStatus("success"); setSyncMeta({ rowsFetched: result.rowsFetched, rowsUpserted: result.rowsUpserted, errorMsg: "" }); }
+      const fetched = await getPartiesByDate(date);
+      setSyncedParties(fetched);
+      loadAlertsForParties(fetched);
+    } catch (err) {
+      setSyncStatus("error");
+      setSyncMeta((m) => ({ ...m, errorMsg: err?.message || "Errore sconosciuto" }));
+      const fallback = await getPartiesByDate(date);
+      setSyncedParties(fallback);
+      loadAlertsForParties(fallback);
+    } finally {
+      setLoadingSynced(false);
+    }
+  }, []);
+
+  const handleDateChange = useCallback((date) => {
+    setSelectedDate(date);
+    setSyncedParties(null);
+    setSyncStatus(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => runSyncForDate(date), 400);
+  }, [runSyncForDate]);
+
+  useEffect(() => { runSyncForDate(todayISO()); }, []);
+
+  useEffect(() => {
+    if (data?.users) cacheManager.cacheUsers(data.users).catch(console.error);
+    if (data?.macroCategories) cacheManager.cacheMacros(data.macroCategories).catch(console.error);
+  }, [data]);
+
+  // Ricarica macro usate quando cambia la lista feste
+  useEffect(() => {
+    getUsedMacroIds(editParty?.id || null).then((ids) => setUsedMacroIds(ids));
+  }, [syncedParties]);
+
+  // Gerarchia speciale per la creazione — si aggiorna quando cambiano le macro selezionate
+  useEffect(() => {
+    if (!showFormModal || editParty) return;
+    getAvailableItemsForSpecialParty("__new__")
+      .then((items) => {
+        const filtered = items.filter((m) => !selectedMaterials.includes(m.id));
+        setSpecialItemHierarchy(filtered);
+      })
+      .catch(() => setSpecialItemHierarchy([]));
+  }, [showFormModal, selectedMaterials, editParty]);
+
+  // ── Alerts perdite ──
+  const loadAlertsForParties = async (partiesList) => {
+    if (!partiesList?.length) return;
     const results = await Promise.allSettled(
       partiesList.map(async (party) => {
         const history = await getPartyHistory(party.id);
+        // activeLosses = solo quelle non resolved → usate per gli alert
+        // losses = tutte (anche resolved) → usate per lo storico nel modal
+        const active = history.activeLosses || [];
         return {
           id: party.id,
-          lossCount: history.losses?.length || 0,
-          hasMissingMaterial: history.losses?.some((l) => l.tipo === "mancante"),
-          losses: history.losses || [],
+          lossCount: active.length,
+          hasMissingMaterial: active.some((l) => l.tipo === "mancante"),
+          losses: active,           // card mostra solo attive
+          allLosses: history.losses || [], // storico completo per il modal
         };
       })
     );
-
     const alertMap = {};
-    results.forEach((res, idx) => {
-      if (res.status === "fulfilled") {
-        alertMap[partiesList[idx].id] = res.value;
-      }
-    });
+    results.forEach((res, idx) => { if (res.status === "fulfilled") alertMap[partiesList[idx].id] = res.value; });
     setPartyAlerts(alertMap);
   };
 
   const loadPartyMaterialsData = async (partyId) => {
     setLoadingMaterials(true);
-    try {
-      const materials = await getPartyMaterials(partyId);
-      setPartyMaterials(materials);
-    } catch (error) {
-      console.error("Error loading party materials:", error);
-    } finally {
-      setLoadingMaterials(false);
-    }
+    try { setPartyMaterials(await getPartyMaterials(partyId)); }
+    catch (err) { console.error("Error loading party materials:", err); }
+    finally { setLoadingMaterials(false); }
   };
 
-  const getStatusColor = (stato) => {
-    switch (stato) {
-      case "iniziale":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "caricato_scaffale":
-        return "bg-red-100 text-red-800 border-red-200";
-      case "caricato_furgone":
-        return "bg-blue-100 text-blue-800 border-blue-200";
-      case "scaricato_furgone":
-        return "bg-purple-100 text-purple-800 border-purple-200";
-      case "scaricato_scaffale":
-        return "bg-green-100 text-green-800 border-green-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
+  // ── Status helpers ──
+  const getStatusColor = (stato) => ({
+    iniziale: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    caricato_scaffale: "bg-red-100 text-red-800 border-red-200",
+    caricato_furgone: "bg-blue-100 text-blue-800 border-blue-200",
+    scaricato_furgone: "bg-purple-100 text-purple-800 border-purple-200",
+    scaricato_scaffale: "bg-green-100 text-green-800 border-green-200",
+  })[stato] || "bg-gray-100 text-gray-800 border-gray-200";
 
-  const getStatusText = (stato) => {
-    switch (stato) {
-      case "iniziale":
-        return "Iniziale";
-      case "caricato_scaffale":
-        return "Caricato sullo scaffale";
-      case "caricato_furgone":
-        return "Caricato nel Furgone";
-      case "scaricato_furgone":
-        return "Scaricato dal Furgone";
-      case "scaricato_scaffale":
-        return "Ritornato al deposito";
-      default:
-        return "Sconosciuto";
-    }
-  };
+  const getStatusText = (stato) => ({
+    iniziale: "Iniziale",
+    caricato_scaffale: "Caricato sullo scaffale",
+    caricato_furgone: "Caricato nel Furgone",
+    scaricato_furgone: "Scaricato dal Furgone",
+    scaricato_scaffale: "Ritornato al deposito",
+  })[stato] || "Sconosciuto";
 
-  const getStatusIcon = (stato) => {
-    switch (stato) {
-      case "iniziale":
-        return <Clock className="w-4 h-4" />;
-      case "caricato_scaffale":
-        return <Warehouse className="w-4 h-4" />;
-      case "caricato_furgone":
-        return <Truck className="w-4 h-4" />;
-      case "scaricato_furgone":
-        return <Package className="w-4 h-4" />;
-      case "scaricato_scaffale":
-        return <Home className="w-4 h-4" />;
-      default:
-        return <Clock className="w-4 h-4" />;
-    }
-  };
+  const getStatusIcon = (stato) => ({
+    iniziale: <Clock className="w-4 h-4" />,
+    caricato_scaffale: <Warehouse className="w-4 h-4" />,
+    caricato_furgone: <Truck className="w-4 h-4" />,
+    scaricato_furgone: <Package className="w-4 h-4" />,
+    scaricato_scaffale: <Home className="w-4 h-4" />,
+  })[stato] || <Clock className="w-4 h-4" />;
 
+  // ── CRUD ──
   const handleAddParty = async (e) => {
     e.preventDefault();
     try {
-      await createParty({ ...newParty, selectedMaterials });
-      mutate();
+      await createParty({ ...newParty, selectedMaterials, selectedSingleItems });
+      await runSyncForDate(selectedDate);
       setShowFormModal(false);
-      setNewParty({
-        nome: "",
-        data: "",
-        luogo: "",
-        animatore_id: "",
-        magazziniere_id: "",
-        stato: "iniziale",
-        note: "",
-        shelves: [],
-      });
+      setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [] });
       setSelectedMaterials([]);
-    } catch (error) {
-      console.error("Error creating party:", error);
-      alert("Errore nella creazione della festa");
-    }
+      setSelectedSingleItems([]);
+    } catch (err) { console.error("Error creating party:", err); alert("Errore nella creazione della festa"); }
   };
 
-  const handleEditParty = (party) => {
+  const handleEditParty = async (party) => {
     setEditParty({
       ...party,
-      shelves: party.shelves
-        ? party.shelves.split(",").map((s) => Number.parseInt(s.trim()))
-        : [],
+      shelves: party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => Number.parseInt(s.trim())) : [],
     });
+    const ids = await getUsedMacroIds(party.id);
+    setUsedMacroIds(ids);
     setShowFormModal(true);
   };
 
@@ -227,35 +242,28 @@ export default function PartiesPage() {
     e.preventDefault();
     try {
       await updateParty(editParty.id, editParty);
-      mutate();
+      await runSyncForDate(selectedDate);
       setShowFormModal(false);
       setEditParty(null);
-    } catch (error) {
-      console.error("Error updating party:", error);
-      alert("Errore nell'aggiornamento della festa");
-    }
+    } catch (err) { console.error("Error updating party:", err); alert("Errore nell'aggiornamento della festa"); }
   };
 
   const handleAssignMaterial = async (macroId) => {
     try {
       await assignMaterial(selectedParty.id, macroId);
       await loadPartyMaterialsData(selectedParty.id);
-      mutate();
-    } catch (error) {
-      console.error("Error assigning material:", error);
-      alert("Errore nell'assegnazione del materiale");
-    }
+      await runSyncForDate(selectedDate);
+      setUsedMacroIds(await getUsedMacroIds(selectedParty.id));
+    } catch (err) { console.error("Error assigning material:", err); alert("Errore nell'assegnazione del materiale"); }
   };
 
   const handleRemoveMaterial = async (macroId) => {
     try {
       await removeMaterial(selectedParty.id, macroId);
       await loadPartyMaterialsData(selectedParty.id);
-      mutate();
-    } catch (error) {
-      console.error("Error removing material:", error);
-      alert("Errore nella rimozione del materiale");
-    }
+      await runSyncForDate(selectedDate);
+      setUsedMacroIds(await getUsedMacroIds(selectedParty.id));
+    } catch (err) { console.error("Error removing material:", err); alert("Errore nella rimozione del materiale"); }
   };
 
   const handleDeleteParty = async (partyId) => {
@@ -263,188 +271,138 @@ export default function PartiesPage() {
     try {
       await deleteParty(partyId);
       await cacheManager.deletePartyFromCache(partyId);
-      mutate();
-    } catch (error) {
-      console.error("Error deleting party:", error);
-      alert("Errore nell'eliminazione della festa");
-    }
+      await runSyncForDate(selectedDate);
+    } catch (err) { console.error("Error deleting party:", err); alert("Errore nell'eliminazione della festa"); }
   };
 
   const openMaterialModal = async (party) => {
     setSelectedParty(party);
     setShowMaterialModal(true);
     await loadPartyMaterialsData(party.id);
+    setUsedMacroIds(await getUsedMacroIds(party.id));
   };
 
-  const openHistoryModal = (party) => {
-    setHistoryParty(party);
-    setShowHistoryModal(true);
-  };
-
-  const toggleMaterialSelection = (materialId) => {
-    setSelectedMaterials((prev) =>
-      prev.includes(materialId)
-        ? prev.filter((id) => id !== materialId)
-        : [...prev, materialId]
-    );
-  };
+  const openHistoryModal = (party) => { setHistoryParty(party); setShowHistoryModal(true); };
+  const toggleMaterialSelection = (id) => setSelectedMaterials((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  const toggleSingleItemSelection = (id) => setSelectedSingleItems((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  const toggleStatusFilter = (status) => setSelectedStatuses((prev) => prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]);
 
   const filteredParties = parties.filter((party) => {
     const matchesSearch =
-      party.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      party.luogo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (party.nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (party.luogo || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (party.animatore?.nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (party.magazziniere?.nome || "").toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesStatus =
-      selectedStatuses.length === 0 || selectedStatuses.includes(party.stato);
-
-    return matchesSearch && matchesStatus;
+    return matchesSearch && (selectedStatuses.length === 0 || selectedStatuses.includes(party.stato));
   });
 
-  const toggleStatusFilter = (status) => {
-    setSelectedStatuses((prev) =>
-      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
-    );
-  };
-
   const isOfflineWithData = error && !isLoading && parties.length > 0;
-
-  if (isLoading && !parties.length) {
-    return (
-      <div className="min-h-screen bg-surface">
-        <Navbar />
-        <main className="containerMod py-8">
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Caricamento feste...</p>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (error && !isOfflineWithData) {
-    return (
-      <div className="min-h-screen bg-surface">
-        <Navbar />
-        <main className="containerMod py-8">
-          <div className="text-center text-danger">
-            {navigator.onLine
-              ? "Errore nel caricamento dei dati"
-              : "Offline - nessun dato in cache"}
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-surface">
       <Navbar />
-
       <main className="containerMod py-8">
         {isOfflineWithData && (
-          <div className="mb-4 p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-yellow-800">
-            📡 Modalità offline - visualizzando dati salvati. I dati verranno
-            sincronizzati quando torna la connessione.
+          <div className="mb-4 p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-yellow-800 flex items-center gap-2">
+            <WifiOff className="w-4 h-4 shrink-0" />Modalità offline — visualizzando dati salvati.
           </div>
         )}
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-6"
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-foreground">
-                Gestione Feste
-              </h1>
+              <h1 className="text-3xl font-bold text-foreground">Gestione Feste</h1>
               <p className="text-muted-foreground">
-                Crea e gestisci tutte le feste
+                Sincronizzate dal gestionale · {filteredParties.length} fest{filteredParties.length === 1 ? "a" : "e"} per il{" "}
+                {new Date(selectedDate + "T00:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}
               </p>
             </div>
             <button
               onClick={() => {
                 setEditParty(null);
-                setNewParty({
-                  nome: "",
-                  data: "",
-                  luogo: "",
-                  animatore_id: "",
-                  magazziniere_id: "",
-                  stato: "iniziale",
-                  note: "",
-                  shelves: [],
-                });
+                setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [] });
                 setSelectedMaterials([]);
+                setSelectedSingleItems([]);
                 setShowFormModal(true);
               }}
-              className="btn-primary flex items-center space-x-2"
+              className="btn-primary flex items-center space-x-2 whitespace-nowrap"
             >
-              <Plus className="w-4 h-4" />
-              <span>Nuova Festa</span>
+              <Plus className="w-4 h-4" /><span>Nuova Festa</span>
             </button>
           </div>
 
-          {/* Search and Filters */}
+          {/* Date Picker + Sync */}
+          <div className="bg-card p-5 rounded-xl border border-border">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex items-center gap-3 flex-1">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <CalendarDays className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Data eventi</label>
+                  <input type="date" value={selectedDate} onChange={(e) => handleDateChange(e.target.value)}
+                    className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm bg-surface" />
+                </div>
+              </div>
+              <button onClick={() => runSyncForDate(selectedDate)} disabled={syncStatus === "syncing"}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                <RefreshCw className={`w-4 h-4 ${syncStatus === "syncing" ? "animate-spin" : ""}`} />
+                {syncStatus === "syncing" ? "Sincronizzando..." : "Sincronizza"}
+              </button>
+            </div>
+            <AnimatePresence mode="wait">
+              {syncStatus && (
+                <div className="mt-3">
+                  <SyncStatusBar status={syncStatus} rowsFetched={syncMeta.rowsFetched} rowsUpserted={syncMeta.rowsUpserted} errorMsg={syncMeta.errorMsg} onRetry={() => runSyncForDate(selectedDate)} />
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Ricerca + filtri */}
           <div className="bg-card p-6 rounded-xl border border-border space-y-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Cerca feste..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input type="text" placeholder="Cerca feste..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
-
             <div className="flex flex-wrap gap-2">
-              <span className="text-sm font-medium text-muted-foreground pt-2">
-                Filtra per stato:
-              </span>
+              <span className="text-sm font-medium text-muted-foreground pt-2">Filtra per stato:</span>
               {[
                 { value: "iniziale", label: "Iniziale" },
                 { value: "caricato_furgone", label: "Caricato nel Furgone" },
                 { value: "scaricato_furgone", label: "Scaricato dal Furgone" },
                 { value: "scaricato_scaffale", label: "Ritornato al deposito" },
-              ].map((status) => (
-                <button
-                  key={status.value}
-                  onClick={() => toggleStatusFilter(status.value)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    selectedStatuses.includes(status.value)
-                      ? "bg-primary text-white"
-                      : "bg-surface text-muted-foreground border border-border hover:bg-surface/80"
-                  }`}
-                >
-                  {status.label}
+              ].map((s) => (
+                <button key={s.value} onClick={() => toggleStatusFilter(s.value)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedStatuses.includes(s.value) ? "bg-primary text-white" : "bg-surface text-muted-foreground border border-border hover:bg-surface/80"}`}>
+                  {s.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Parties List */}
+          {/* Lista feste */}
           <div className="grid gap-6">
-            {filteredParties.length > 0 ? (
+            {loadingSynced ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-card rounded-xl border border-border p-6 animate-pulse">
+                  <div className="flex-1 space-y-3">
+                    <div className="h-5 bg-surface rounded-lg w-1/3" />
+                    <div className="h-4 bg-surface rounded-lg w-1/2" />
+                    <div className="grid grid-cols-4 gap-3 mt-4">{Array.from({ length: 4 }).map((_, j) => <div key={j} className="h-4 bg-surface rounded-lg" />)}</div>
+                  </div>
+                </div>
+              ))
+            ) : filteredParties.length > 0 ? (
               filteredParties.map((party) => {
                 const alerts = partyAlerts[party.id];
-                const enrichedParty = {
-                  ...party,
-                  _lossCount: alerts?.lossCount || 0,
-                  _hasMissingMaterial: alerts?.hasMissingMaterial || false,
-                  _losses: alerts?.losses || [],
-                };
-
                 return (
                   <PartyCard
                     key={party.id}
-                    party={enrichedParty}
+                    party={{ ...party, _lossCount: alerts?.lossCount || 0, _hasMissingMaterial: alerts?.hasMissingMaterial || false, _losses: alerts?.losses || [] }}
                     onEdit={handleEditParty}
                     onDelete={handleDeleteParty}
                     onMaterial={openMaterialModal}
@@ -456,82 +414,60 @@ export default function PartiesPage() {
                 );
               })
             ) : (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground">Nessuna festa trovata</p>
+              <div className="text-center py-16">
+                <CalendarDays className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-40" />
+                <p className="text-muted-foreground font-medium">
+                  {!syncStatus || syncStatus === "syncing" ? "Caricamento in corso..." : "Nessuna festa per questa data"}
+                </p>
+                {syncStatus !== "syncing" && <p className="text-sm text-muted-foreground mt-1 opacity-60">Prova a cambiare data o crea una festa manualmente</p>}
               </div>
             )}
           </div>
 
+          {/* Modali */}
           <PartyFormModal
             isOpen={showFormModal}
             isEdit={editParty !== null}
             party={editParty || newParty}
-            onPartyChange={(updatedParty) => {
-              if (editParty) {
-                setEditParty(updatedParty);
-              } else {
-                setNewParty(updatedParty);
-              }
-            }}
+            onPartyChange={(p) => { if (editParty) setEditParty(p); else setNewParty(p); }}
             users={users}
             macroCategories={macroCategories}
             selectedMaterials={selectedMaterials}
             onMaterialToggle={toggleMaterialSelection}
             onAddShelf={(shelf) => {
-              if (editParty) {
-                setEditParty((prev) => ({
-                  ...prev,
-                  shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
-                }));
-              } else {
-                setNewParty((prev) => ({
-                  ...prev,
-                  shelves: [...prev.shelves, shelf].sort((a, b) => a - b),
-                }));
-              }
+              const setter = editParty ? setEditParty : setNewParty;
+              setter((prev) => ({ ...prev, shelves: [...prev.shelves, shelf].sort((a, b) => a - b) }));
             }}
             onRemoveShelf={(shelf) => {
-              if (editParty) {
-                setEditParty((prev) => ({
-                  ...prev,
-                  shelves: prev.shelves.filter((s) => s !== shelf),
-                }));
-              } else {
-                setNewParty((prev) => ({
-                  ...prev,
-                  shelves: prev.shelves.filter((s) => s !== shelf),
-                }));
-              }
+              const setter = editParty ? setEditParty : setNewParty;
+              setter((prev) => ({ ...prev, shelves: prev.shelves.filter((s) => s !== shelf) }));
             }}
             onSubmit={editParty ? handleUpdateParty : handleAddParty}
-            onCancel={() => {
-              setShowFormModal(false);
-              setEditParty(null);
-              setSelectedMaterials([]);
-            }}
+            onCancel={() => { setShowFormModal(false); setEditParty(null); setSelectedMaterials([]); setSelectedSingleItems([]); }}
             allParties={parties}
+            usedMacroIds={usedMacroIds}
+            specialItemHierarchy={specialItemHierarchy}
+            selectedSingleItems={selectedSingleItems}
+            onSingleItemToggle={toggleSingleItemSelection}
           />
 
-          {/* Material Modal */}
           <MaterialModal
             isOpen={showMaterialModal}
             party={selectedParty}
             materials={partyMaterials}
             loading={loadingMaterials}
             macroCategories={macroCategories}
+            usedMacroIds={usedMacroIds}
             onAssignMaterial={handleAssignMaterial}
             onRemoveMaterial={handleRemoveMaterial}
             onClose={() => setShowMaterialModal(false)}
+            onRefresh={async () => { if (selectedParty) await loadPartyMaterialsData(selectedParty.id); }}
           />
 
-          {/* History Modal */}
           <PartyHistoryModal
             isOpen={showHistoryModal}
             party={historyParty}
-            onClose={() => {
-              setShowHistoryModal(false);
-              setHistoryParty(null);
-            }}
+            onClose={() => { setShowHistoryModal(false); setHistoryParty(null); }}
           />
         </motion.div>
       </main>

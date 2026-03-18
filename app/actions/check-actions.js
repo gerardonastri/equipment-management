@@ -31,12 +31,7 @@ export async function getPartyDataForShelf(shelfId) {
         return shelvesList.includes(shelfId);
       }) || [];
 
-    console.log(
-      "[v0] Matching parties for shelf",
-      shelfId,
-      ":",
-      matchingParties
-    );
+    console.log("[v0] Matching parties for shelf", shelfId, ":", matchingParties);
 
     if (matchingParties.length === 0) {
       return { error: "Nessuna festa trovata per questo scaffale" };
@@ -116,12 +111,13 @@ export async function getPartyDataForShelf(shelfId) {
       materialHierarchy.push(macroData);
     }
 
-    // Carica le segnalazioni già presenti per questa festa
-    // così la pagina sa quali elementi sono già stati segnalati
+    // Carica SOLO le segnalazioni NON risolte per questa festa.
+    // Le segnalazioni resolved=true sono storico e non bloccano il check.
     const { data: existingLosses } = await supabase
       .from("inventory_losses")
       .select("inventory_id, tipo, note, valore_stimato")
-      .eq("party_id", party.id);
+      .eq("party_id", party.id)
+      .eq("resolved", false);
 
     console.log("[v0] Final material hierarchy:", materialHierarchy);
 
@@ -273,19 +269,12 @@ export async function submitCheck(
     if (insertError) throw insertError;
 
     let newStatus = null;
-    if (checkType === "deposito_scaffale") {
-      newStatus = "caricato_scaffale";
-    } else if (checkType === "scaffale_furgone") {
-      newStatus = "caricato_furgone";
-    } else if (checkType === "furgone_scaffale") {
-      newStatus = "scaricato_furgone";
-    } else if (checkType === "scaffale_deposito") {
-      newStatus = "scaricato_scaffale";
-    }
+    if (checkType === "deposito_scaffale") newStatus = "caricato_scaffale";
+    else if (checkType === "scaffale_furgone") newStatus = "caricato_furgone";
+    else if (checkType === "furgone_scaffale") newStatus = "scaricato_furgone";
+    else if (checkType === "scaffale_deposito") newStatus = "scaricato_scaffale";
 
-    if (newStatus) {
-      partyUpdates.stato = newStatus;
-    }
+    if (newStatus) partyUpdates.stato = newStatus;
 
     if (Object.keys(partyUpdates).length > 0) {
       const { error: updateError } = await supabase
@@ -293,26 +282,20 @@ export async function submitCheck(
         .update(partyUpdates)
         .eq("id", partyId);
 
-      if (updateError) {
-        console.error("[v0] Error updating party:", updateError);
-      } else {
-        console.log("[v0] Party updated with:", partyUpdates);
-      }
+      if (updateError) console.error("[v0] Error updating party:", updateError);
+      else console.log("[v0] Party updated with:", partyUpdates);
     }
 
     const { error: notificationError } = await supabase
       .from("notifications")
       .insert({
         titolo: `Check Completato - ${checkType.replace(/_/g, " ")}`,
-        messaggio: `${userName} ha completato il check per la festa "${partyName}" (Scaffale ${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}${
-          materialSmarrito ? " - MATERIALE SMARRITO" : ""
-        }`,
+        messaggio: `${userName} ha completato il check per la festa "${partyName}" (Scaffale ${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}${materialSmarrito ? " - MATERIALE SMARRITO" : ""}`,
         tipo: "check",
         letto: false,
       });
 
-    if (notificationError)
-      console.error("[v0] Error creating notification:", notificationError);
+    if (notificationError) console.error("[v0] Error creating notification:", notificationError);
 
     const checkTypeNames = {
       deposito_scaffale: "Carico dal Deposito allo Scaffale",
@@ -327,11 +310,7 @@ export async function submitCheck(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `${materialSmarrito ? "⚠️" : "✅"} Check completato!\n\nFesta: ${partyName}\nScaffale: ${shelfId}\nTipo: ${
-            checkTypeNames[checkType]
-          }\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${
-            materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""
-          }`,
+          message: `${materialSmarrito ? "⚠️" : "✅"} Check completato!\n\nFesta: ${partyName}\nScaffale: ${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""}`,
         }),
       });
       console.log("[v0] Telegram notification sent successfully");
@@ -351,29 +330,13 @@ export async function submitCheck(
 /**
  * Salva IMMEDIATAMENTE una segnalazione di danneggiato/rubato
  * su un singolo elemento durante il check (prima del submit).
- *
- * - Inserisce in inventory_losses
- * - Mette materiale_mancante: true sull'item così persiste nei check futuri
- *
- * @param {string} inventoryId  - ID dell'elemento
- * @param {string} partyId      - ID della festa
- * @param {string} userId       - ID dell'utente che segnala
- * @param {string} tipo         - 'danneggiato' | 'rubato'
- * @param {number|null} valoreStimato
- * @param {string|null} note
+ * - Inserisce in inventory_losses (resolved=false)
+ * - Mette materiale_mancante: true sull'item
  */
-export async function reportItemDamage(
-  inventoryId,
-  partyId,
-  userId,
-  tipo,
-  valoreStimato,
-  note
-) {
+export async function reportItemDamage(inventoryId, partyId, userId, tipo, valoreStimato, note) {
   try {
     const supabase = await createClient();
 
-    // 1. Inserisci in inventory_losses (senza check_id — verrà creato dopo)
     const { error: lossError } = await supabase.from("inventory_losses").insert({
       inventory_id: inventoryId,
       party_id: partyId,
@@ -383,12 +346,11 @@ export async function reportItemDamage(
       valore_stimato: valoreStimato || null,
       note: note || null,
       reported_by: userId,
+      resolved: false,
     });
 
     if (lossError) throw lossError;
 
-    // 2. Marca l'elemento come mancante/fuori uso così nei check futuri
-    //    appare disabilitato esattamente come gli elementi mancanti
     const { error: itemError } = await supabase
       .from("inventory_items")
       .update({ materiale_mancante: true })
@@ -412,9 +374,7 @@ export async function reportLosses(checkId, partyId, userId, losses) {
   try {
     const supabase = await createClient();
 
-    if (!losses || losses.length === 0) {
-      return { success: true };
-    }
+    if (!losses || losses.length === 0) return { success: true };
 
     const rows = losses.map((loss) => ({
       inventory_id: loss.inventoryId,
@@ -425,6 +385,7 @@ export async function reportLosses(checkId, partyId, userId, losses) {
       valore_stimato: loss.valoreStimato || null,
       note: loss.note || null,
       reported_by: userId,
+      resolved: false,
     }));
 
     const { error } = await supabase.from("inventory_losses").insert(rows);
