@@ -164,10 +164,20 @@ export async function getActiveParties() {
  * Se la festa ha già degli scaffali, il nuovo viene aggiunto alla lista.
  * Controlla che lo scaffale non sia già occupato da un'altra festa attiva.
  */
-export async function assignShelfToParty(partyId, shelfNumber) {
+export async function assignShelfToParty(partyId, shelfInput) {
   const supabase = await createServerClient();
 
-  const shelf = String(shelfNumber).trim();
+  const shelf = String(shelfInput).trim().toUpperCase();
+
+  // Valida: numerico 1-36 oppure lettera A-L
+  const numVal = parseInt(shelf, 10);
+  const LETTER_SHELVES = Array.from({ length: 12 }, (_, i) => String.fromCharCode(65 + i));
+  const isValidNumeric = !isNaN(numVal) && numVal >= 1 && numVal <= 36 && String(numVal) === shelf;
+  const isValidLetter = LETTER_SHELVES.includes(shelf);
+
+  if (!isValidNumeric && !isValidLetter) {
+    return { error: "Scaffale non valido. Usa un numero (1–36) o una lettera (A–L)." };
+  }
 
   // 1. Verifica che lo scaffale non sia già occupato
   const { data: allParties } = await supabase

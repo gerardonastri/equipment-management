@@ -60,27 +60,30 @@ function StatusBadge({ stato }) {
 
 // ─── Modal Assegna Scaffale ──────────────────────────────────────────────────
 
-function AssignShelfModal({ parties, onClose, onSuccess }) {
+// Scaffali disponibili: 36 numerici (1-36) + 12 lettere (A-L)
+const NUMERIC_SHELVES = Array.from({ length: 36 }, (_, i) => String(i + 1));
+const LETTER_SHELVES = Array.from({ length: 12 }, (_, i) => String.fromCharCode(65 + i));
+const ALL_SHELVES = [...NUMERIC_SHELVES, ...LETTER_SHELVES];
+
+function AssignShelfModal({ parties, occupiedShelfIds, onClose, onSuccess }) {
   const [selectedPartyId, setSelectedPartyId] = useState("");
-  const [shelfNumber, setShelfNumber] = useState("");
+  const [shelfValue, setShelfValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const availableShelves = ALL_SHELVES.filter((s) => !(occupiedShelfIds || new Set()).has(s));
+  const availableNumeric = availableShelves.filter((s) => !isNaN(Number(s)));
+  const availableLetters = availableShelves.filter((s) => isNaN(Number(s)));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedPartyId || !shelfNumber) return;
-
-    const num = parseInt(shelfNumber, 10);
-    if (isNaN(num) || num < 1 || num > 50) {
-      setError("Inserisci un numero scaffale valido (1-50).");
-      return;
-    }
+    if (!selectedPartyId || !shelfValue) return;
 
     setLoading(true);
     setError("");
 
     try {
-      const result = await assignShelfToParty(selectedPartyId, num);
+      const result = await assignShelfToParty(selectedPartyId, shelfValue);
       if (result.error) { setError(result.error); return; }
       onSuccess();
     } catch (err) {
@@ -134,18 +137,30 @@ function AssignShelfModal({ parties, onClose, onSuccess }) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Numero Scaffale</label>
-            <input
-              type="number"
-              min="1"
-              max="50"
-              value={shelfNumber}
-              onChange={(e) => setShelfNumber(e.target.value)}
-              placeholder="Es. 7"
+            <label className="block text-sm font-medium text-foreground mb-2">Scaffale</label>
+            <select
+              value={shelfValue}
+              onChange={(e) => setShelfValue(e.target.value)}
               required
               className="w-full px-3 py-2.5 border border-input rounded-xl focus:outline-none focus:ring-2 focus:ring-ring text-sm bg-surface"
-            />
-            <p className="text-xs text-muted-foreground mt-1">Scaffali disponibili: 1–50</p>
+            >
+              <option value="">Seleziona scaffale libero...</option>
+              {availableNumeric.length > 0 && (
+                <optgroup label="Numerici (1–36)">
+                  {availableNumeric.map((s) => (
+                    <option key={s} value={s}>#{s}</option>
+                  ))}
+                </optgroup>
+              )}
+              {availableLetters.length > 0 && (
+                <optgroup label="Lettere (A–L)">
+                  {availableLetters.map((s) => (
+                    <option key={s} value={s}>#{s}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">48 scaffali totali: numerici 1–36 e lettere A–L</p>
           </div>
 
           <div>
@@ -170,7 +185,7 @@ function AssignShelfModal({ parties, onClose, onSuccess }) {
               className="flex-1 px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-surface transition-colors">
               Annulla
             </button>
-            <button type="submit" disabled={loading || !selectedPartyId || !shelfNumber}
+            <button type="submit" disabled={loading || !selectedPartyId || !shelfValue}
               className="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
               {loading
                 ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Assegnando...</>
@@ -580,6 +595,7 @@ export default function ShelvesPage() {
         {showAssignModal && (
           <AssignShelfModal
             parties={allParties}
+            occupiedShelfIds={new Set(shelves.map((s) => s.shelfId))}
             onClose={() => setShowAssignModal(false)}
             onSuccess={() => {
               setShowAssignModal(false);

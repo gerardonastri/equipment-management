@@ -2,6 +2,13 @@
 
 import { useState } from "react";
 
+// 36 scaffali numerici (1-36) + 12 scaffali con lettera (A-L)
+const NUMERIC_SHELVES = Array.from({ length: 36 }, (_, i) => String(i + 1));
+const LETTER_SHELVES = Array.from({ length: 12 }, (_, i) =>
+  String.fromCharCode(65 + i) // A, B, C, ..., L
+);
+const ALL_SHELVES = [...NUMERIC_SHELVES, ...LETTER_SHELVES]; // 48 totali
+
 export function ShelfSelector({
   allParties,
   currentPartyId,
@@ -11,27 +18,24 @@ export function ShelfSelector({
 }) {
   const [shelfInput, setShelfInput] = useState("");
 
-  // FIX: uno scaffale è "occupato" solo se la festa NON è scaricato_scaffale
-  // (cioè la festa è ancora attiva e lo scaffale è in uso)
+  // Uno scaffale è "occupato" solo se la festa NON è scaricato_scaffale
   const usedShelves = new Set();
   allParties.forEach((party) => {
-    // Escludi la festa corrente (in modifica) e le feste completate
     if (party.id !== currentPartyId && party.stato !== "scaricato_scaffale" && party.shelves) {
-      party.shelves.split(",").forEach((shelf) => {
-        usedShelves.add(Number.parseInt(shelf.trim()));
+      party.shelves.split(",").forEach((s) => {
+        const val = s.trim();
+        if (val) usedShelves.add(val);
       });
     }
   });
 
-  // Generate available shelves (1-50)
-  const availableShelves = Array.from({ length: 50 }, (_, i) => i + 1).filter(
-    (num) => !usedShelves.has(num)
-  );
+  const availableShelves = ALL_SHELVES.filter((s) => !usedShelves.has(s));
+  const availableNumeric = availableShelves.filter((s) => !isNaN(Number(s)));
+  const availableLetters = availableShelves.filter((s) => isNaN(Number(s)));
 
   const handleAddShelf = () => {
-    const shelfNumber = Number.parseInt(shelfInput);
-    if (shelfNumber && !selectedShelves.includes(shelfNumber)) {
-      onAddShelf(shelfNumber);
+    if (shelfInput && !selectedShelves.includes(shelfInput)) {
+      onAddShelf(shelfInput);
       setShelfInput("");
     }
   };
@@ -45,11 +49,20 @@ export function ShelfSelector({
           className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="">Seleziona scaffale disponibile...</option>
-          {availableShelves.map((shelf) => (
-            <option key={shelf} value={shelf}>
-              #{shelf}
-            </option>
-          ))}
+          {availableNumeric.length > 0 && (
+            <optgroup label="Numerici (1–36)">
+              {availableNumeric.map((shelf) => (
+                <option key={shelf} value={shelf}>#{shelf}</option>
+              ))}
+            </optgroup>
+          )}
+          {availableLetters.length > 0 && (
+            <optgroup label="Lettere (A–L)">
+              {availableLetters.map((shelf) => (
+                <option key={shelf} value={shelf}>#{shelf}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
         <button
           type="button"
@@ -81,7 +94,8 @@ export function ShelfSelector({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Scaffali disponibili: {availableShelves.length}/{50} (gli scaffali delle feste completate sono automaticamente liberati)
+        Scaffali disponibili: {availableShelves.length}/48 — numerici 1–36, lettere A–L
+        (gli scaffali delle feste completate sono automaticamente liberati)
       </p>
     </div>
   );

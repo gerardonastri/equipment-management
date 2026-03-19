@@ -475,8 +475,39 @@ export async function updateParty(partyId, formData) {
 
 export async function deleteParty(partyId) {
   const supabase = await createServerClient();
+
+  // Elimina prima i record collegati per rispettare i vincoli di foreign key.
+  // Ordine: prima le tabelle figlie, poi la festa stessa.
+
+  // 1. inventory_losses collegate alla festa
+  const { error: lossesError } = await supabase
+    .from("inventory_losses")
+    .delete()
+    .eq("party_id", partyId);
+  if (lossesError) { console.error("[v0] Error deleting losses:", lossesError); throw lossesError; }
+
+  // 2. check_items (figli dei checks) + checks
+  const { data: checks } = await supabase
+    .from("checks")
+    .select("id")
+    .eq("party_id", partyId);
+
+  if (checks?.length) {
+    const checkIds = checks.map((c) => c.id);
+    // check_items potrebbe non esistere — ignoriamo l'errore
+    try { await supabase.from("check_items").delete().in("check_id", checkIds); } catch (_) {}
+    const { error: checksError } = await supabase.from("checks").delete().eq("party_id", partyId);
+    if (checksError) { console.error("[v0] Error deleting checks:", checksError); throw checksError; }
+  }
+
+  // 3. Materiale assegnato (party_inventory)
+  const { error: invError } = await supabase.from("party_inventory").delete().eq("party_id", partyId);
+  if (invError) { console.error("[v0] Error deleting party_inventory:", invError); throw invError; }
+
+  // 4. La festa
   const { error } = await supabase.from("parties").delete().eq("id", partyId);
   if (error) throw error;
+
   revalidatePath("/admin/parties");
   return { success: true };
 }
