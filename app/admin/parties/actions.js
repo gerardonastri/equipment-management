@@ -8,14 +8,19 @@ import { revalidatePath } from "next/cache";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EXTERNAL_API_BASE = "http://93.39.183.62:99/s.movida/api/eventi.php";
-const SYNC_COOLDOWN_MINUTES = 10;
+const SYNC_COOLDOWN_MINUTES = 5;
 
 function mapEventoToParty(evento) {
+  // Unisce nota_bene e servizi in un unico campo note
+  const noteParts = [evento.nota_bene, evento.servizi].filter(Boolean).map((s) => s.trim()).filter(Boolean);
   return {
     external_id: String(evento.id_evento),
     nome: evento.categoria || "Evento senza nome",
     data: evento.giorno,
     luogo: evento.location || "Luogo non specificato",
+    cliente: evento.cliente || null,
+    categoria_evento: evento.categoria || null,
+    servizi: noteParts.join("\n\n") || null,
     source: "gestionale",
     last_synced_at: new Date().toISOString(),
   };
@@ -28,6 +33,7 @@ async function fetchEventsByDate(date) {
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   });
+  console.log(res)
   if (!res.ok) throw new Error(`API responded with status ${res.status}`);
   const json = await res.json();
   return json?.eventi || [];
@@ -93,7 +99,7 @@ export async function syncPartiesByDate(date) {
 
     const toInsert = partiesToUpsert
       .filter((p) => !existingIds.has(p.external_id))
-      .map((p) => ({ ...p, shelves: "", stato: "iniziale" }));
+      .map((p) => ({ ...p, shelves: "", stato: "iniziale" })); // cliente/categoria_evento/servizi already in p
 
     const toUpdate = partiesToUpsert.filter((p) => existingIds.has(p.external_id));
 
@@ -108,7 +114,7 @@ export async function syncPartiesByDate(date) {
     for (const party of toUpdate) {
       const { error: updateError } = await supabase
         .from("parties")
-        .update({ nome: party.nome, data: party.data, luogo: party.luogo, source: party.source, last_synced_at: party.last_synced_at })
+        .update({ nome: party.nome, data: party.data, luogo: party.luogo, cliente: party.cliente, categoria_evento: party.categoria_evento, servizi: party.servizi, source: party.source, last_synced_at: party.last_synced_at })
         .eq("external_id", party.external_id);
       if (!updateError) rowsUpserted++;
     }
@@ -420,6 +426,21 @@ export async function getPartyHistory(partyId) {
   };
 }
 
+
+/**
+ * Restituisce gli ID delle macro già assegnate a una festa.
+ * Usato per pre-selezionare le checkbox nel form di modifica.
+ */
+export async function getPartyMacroIds(partyId) {
+  const supabase = await createServerClient();
+  const { data } = await supabase
+    .from("party_inventory")
+    .select("inventory_id, inventory_items!inner(type)")
+    .eq("party_id", partyId)
+    .eq("inventory_items.type", "macro");
+  return (data || []).map((d) => d.inventory_id);
+}
+
 export async function createParty(formData) {
   const supabase = await createServerClient();
 
@@ -468,6 +489,39 @@ export async function updateParty(partyId, formData) {
 
   const { data, error } = await supabase.from("parties").update(partyData).eq("id", partyId).select();
   if (error) throw error;
+
+  // Salva il materiale (macro + singoli) se passato nel form.
+  // Strategia: elimina tutto il materiale esistente e reinserisce la selezione corrente.
+  // Questo garantisce che deselezionare una macro la rimuova effettivamente.
+  if (formData.selectedMaterials !== undefined) {
+    // Rimuovi solo le macro (non i singoli elementi — quelli sono gestiti da assignSingleItem/removeSingleItem)
+    const { data: existingMacros } = await supabase
+      .from("party_inventory")
+      .select("inventory_id, inventory_items!inner(type)")
+      .eq("party_id", partyId)
+      .eq("inventory_items.type", "macro");
+
+    const existingMacroIds = (existingMacros || []).map((m) => m.inventory_id);
+    const newMacroIds = formData.selectedMaterials || [];
+
+    // Rimuovi le macro deselezionate
+    const toRemove = existingMacroIds.filter((id) => !newMacroIds.includes(id));
+    if (toRemove.length > 0) {
+      await supabase
+        .from("party_inventory")
+        .delete()
+        .eq("party_id", partyId)
+        .in("inventory_id", toRemove);
+    }
+
+    // Aggiungi le macro nuove (non già presenti)
+    const toAdd = newMacroIds.filter((id) => !existingMacroIds.includes(id));
+    if (toAdd.length > 0) {
+      const assignments = toAdd.map((id) => ({ party_id: partyId, inventory_id: id }));
+      const { error: matError } = await supabase.from("party_inventory").insert(assignments);
+      if (matError) console.error("[v0] Error updating party materials:", matError);
+    }
+  }
 
   revalidatePath("/admin/parties");
   return { success: true, data: data[0] };

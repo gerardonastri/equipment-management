@@ -12,6 +12,9 @@ import {
   ExternalLink,
   History,
   AlertTriangle,
+  Building2,
+  Tag,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -56,6 +59,8 @@ export function PartyCard({
     return acc;
   }, {});
 
+
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -95,7 +100,7 @@ export function PartyCard({
       <div className="p-6">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="flex-1">
-            {/* Nome + stato */}
+            {/* Nome + stato + badge cliente/categoria */}
             <div className="flex items-center flex-wrap gap-2 mb-3">
               <h3 className="text-xl font-semibold text-foreground">
                 {party.nome}
@@ -108,7 +113,22 @@ export function PartyCard({
                 {getStatusIcon(party.stato)}
                 <span>{getStatusText(party.stato)}</span>
               </span>
+              {party.categoria_evento && (
+                <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200">
+                  <Tag className="w-3 h-3" />
+                  {party.categoria_evento}
+                </span>
+              )}
             </div>
+
+            {/* Cliente — evidenziato per distinguere feste nello stesso luogo */}
+            {party.cliente && (
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-surface rounded-lg border border-border">
+                <Building2 className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-xs text-muted-foreground">Cliente:</span>
+                <span className="text-sm font-semibold text-foreground">{party.cliente}</span>
+              </div>
+            )}
 
             {/* Info griglia */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
@@ -156,6 +176,18 @@ export function PartyCard({
               <p className="text-sm text-muted-foreground mt-3 italic">
                 {party.note}
               </p>
+            )}
+
+            {/* Servizi/Note dall'API gestionale */}
+            {party.servizi && (
+              <div className="mt-3 p-3 bg-surface rounded-lg border border-border">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1">
+                  <FileText className="w-3 h-3" /> Note Servizi
+                </p>
+                <p className="text-xs text-muted-foreground whitespace-pre-line leading-relaxed">
+                  {party.servizi}
+                </p>
+              </div>
             )}
 
             {/* ---- SEZIONE PERDITE INLINE ---- */}

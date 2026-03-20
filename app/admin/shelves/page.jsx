@@ -22,6 +22,8 @@ import {
   Plus,
   ChevronDown,
   TriangleAlert,
+  Loader2,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/navbar";
@@ -29,6 +31,8 @@ import {
   getOccupiedShelves,
   getActiveParties,
   assignShelfToParty,
+  getMaterialInUse,
+  removeMaterialFromParty,
 } from "./actions";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -375,23 +379,42 @@ function ShelfCard({ shelf, index }) {
 export default function ShelvesPage() {
   const [shelves, setShelves] = useState([]);
   const [allParties, setAllParties] = useState([]);
+  const [materialInUse, setMaterialInUse] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [removingMacro, setRemovingMacro] = useState(null); // "partyId-macroId"
+
+  const handleRemoveMacro = async (partyId, macroId) => {
+    const key = `${partyId}-${macroId}`;
+    setRemovingMacro(key);
+    try {
+      const result = await removeMaterialFromParty(partyId, macroId);
+      if (result?.error) { alert(result.error); return; }
+      await loadData(true);
+    } catch (err) {
+      console.error("[v0] Error removing macro:", err);
+      alert("Errore nella rimozione del materiale.");
+    } finally {
+      setRemovingMacro(null);
+    }
+  };
 
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
     try {
-      const [shelvesData, partiesData] = await Promise.all([
+      const [shelvesData, partiesData, materialData] = await Promise.all([
         getOccupiedShelves(),
         getActiveParties(),
+        getMaterialInUse(),
       ]);
       setShelves(shelvesData);
       setAllParties(partiesData);
+      setMaterialInUse(materialData);
     } catch (err) {
       console.error("[v0] Error loading shelves:", err);
     } finally {
@@ -584,6 +607,85 @@ export default function ShelvesPage() {
                   Assegna il primo scaffale
                 </button>
               )}
+            </motion.div>
+          )}
+
+          {/* ── Sezione Materiale in Uso ── */}
+          {!loading && materialInUse.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="mt-4"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Materiale in Uso</h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Pacchetti (macro-categorie) assegnati a feste attive
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-muted-foreground bg-surface border border-border px-3 py-1.5 rounded-xl">
+                  {materialInUse.length} pacchett{materialInUse.length === 1 ? "o" : "i"}
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {materialInUse.map((entry, i) => (
+                  <motion.div
+                    key={`${entry.macro.id}-${entry.party.id}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    className="bg-card rounded-2xl border border-border p-4 hover:border-primary/30 transition-colors"
+                  >
+                    {/* Header macro + bottone rimuovi */}
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                        <Package className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-sm text-foreground truncate">{entry.macro.name}</p>
+                        <p className="text-xs text-muted-foreground">{entry.macro.categoriesCount} categorie</p>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveMacro(entry.party.id, entry.macro.id)}
+                        disabled={removingMacro === `${entry.party.id}-${entry.macro.id}`}
+                        className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-danger hover:bg-red-50 transition-colors disabled:opacity-40"
+                        title="Rimuovi assegnamento"
+                      >
+                        {removingMacro === `${entry.party.id}-${entry.macro.id}`
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Trash2 className="w-3.5 h-3.5" />
+                        }
+                      </button>
+                    </div>
+
+                    {/* Festa */}
+                    <div className="bg-surface rounded-xl border border-border px-3 py-2.5">
+                      <p className="text-xs text-muted-foreground mb-0.5">Assegnato a:</p>
+                      <p className="text-sm font-semibold text-foreground truncate">{entry.party.nome}</p>
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {new Date(entry.party.data + "T00:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="truncate max-w-[100px]">{entry.party.luogo}</span>
+                        </span>
+                      </div>
+                      {entry.party.shelves ? (
+                        <p className="text-xs text-primary font-medium mt-1">
+                          Scaffali: {entry.party.shelves.split(",").map((s) => `#${s.trim()}`).join(", ")}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-amber-600 font-medium mt-1">⚠ Nessuno scaffale assegnato</p>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
             </motion.div>
           )}
 

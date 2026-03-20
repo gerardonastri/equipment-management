@@ -231,3 +231,73 @@ export async function assignShelfToParty(partyId, shelfInput) {
   revalidatePath("/admin/shelves");
   return { success: true };
 }
+
+/**
+ * Restituisce tutte le macro-categorie assegnate a feste attive,
+ * con info sulla festa di appartenenza.
+ * Include anche le feste senza scaffale assegnato.
+ */
+export async function getMaterialInUse() {
+  const supabase = await createServerClient();
+
+  // Feste attive
+  const { data: parties, error } = await supabase
+    .from("parties")
+    .select("id, nome, data, luogo, stato, shelves")
+    .neq("stato", "scaricato_scaffale")
+    .order("data", { ascending: true });
+
+  if (error) { console.error("[v0] getMaterialInUse error:", error); return []; }
+
+  const result = [];
+
+  for (const party of parties || []) {
+    // Macro assegnate a questa festa
+    const { data: items } = await supabase
+      .from("party_inventory")
+      .select("inventory_id, inventory_items!inner(id, name, type)")
+      .eq("party_id", party.id)
+      .eq("inventory_items.type", "macro");
+
+    for (const item of items || []) {
+      const macro = item.inventory_items;
+
+      // Conta le categorie figlie
+      const { count } = await supabase
+        .from("inventory_items")
+        .select("id", { count: "exact", head: true })
+        .eq("parent_id", macro.id)
+        .eq("type", "categoria");
+
+      result.push({
+        macro: { id: macro.id, name: macro.name, categoriesCount: count || 0 },
+        party: { id: party.id, nome: party.nome, data: party.data, luogo: party.luogo, stato: party.stato, shelves: party.shelves },
+      });
+    }
+  }
+
+  // Ordina per nome macro
+  result.sort((a, b) => a.macro.name.localeCompare(b.macro.name));
+  return result;
+}
+
+/**
+ * Rimuove una macro dall'assegnamento di una festa (party_inventory).
+ */
+export async function removeMaterialFromParty(partyId, macroId) {
+  const supabase = await createServerClient();
+
+  const { error } = await supabase
+    .from("party_inventory")
+    .delete()
+    .eq("party_id", partyId)
+    .eq("inventory_id", macroId);
+
+  if (error) {
+    console.error("[v0] removeMaterialFromParty error:", error);
+    return { error: "Errore nella rimozione del materiale." };
+  }
+
+  revalidatePath("/admin/shelves");
+  return { success: true };
+}

@@ -25,6 +25,7 @@ import {
   getPartiesByDate,
   getUsedMacroIds,
   getAvailableItemsForSpecialParty,
+  getPartyMacroIds,
 } from "./actions";
 import { cacheManager } from "@/lib/cache/db";
 
@@ -231,20 +232,27 @@ export default function PartiesPage() {
   const handleEditParty = async (party) => {
     setEditParty({
       ...party,
-      shelves: party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => Number.parseInt(s.trim())) : [],
+      shelves: party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => s.trim()) : [],
     });
-    const ids = await getUsedMacroIds(party.id);
-    setUsedMacroIds(ids);
+    // Carica in parallelo: macro usate (per disabilitare) + macro già assegnate (per pre-selezionare)
+    const [usedIds, assignedMacroIds] = await Promise.all([
+      getUsedMacroIds(party.id),
+      getPartyMacroIds(party.id),
+    ]);
+    setUsedMacroIds(usedIds);
+    setSelectedMaterials(assignedMacroIds);  // pre-seleziona le macro già assegnate
     setShowFormModal(true);
   };
 
   const handleUpdateParty = async (e) => {
     e.preventDefault();
     try {
-      await updateParty(editParty.id, editParty);
+      // Passa selectedMaterials così updateParty può sincronizzare party_inventory
+      await updateParty(editParty.id, { ...editParty, selectedMaterials });
       await runSyncForDate(selectedDate);
       setShowFormModal(false);
       setEditParty(null);
+      setSelectedMaterials([]);
     } catch (err) { console.error("Error updating party:", err); alert("Errore nell'aggiornamento della festa"); }
   };
 
