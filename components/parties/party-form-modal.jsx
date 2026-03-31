@@ -20,6 +20,7 @@ export function PartyFormModal({
   onCancel,
   allParties,
   usedMacroIds,            // Set<string> — macro già usate in altre feste attive
+  isSubmitting = false,    // disabilita il bottone durante il submit
   // Per la modalità festa speciale alla creazione
   specialItemHierarchy,    // gerarchia macro→cat→sotto disponibili
   selectedSingleItems,     // string[]
@@ -345,8 +346,11 @@ export function PartyFormModal({
             <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors">
               Annulla
             </button>
-            <button type="submit" className="flex-1 btn-primary">
-              {isEdit ? "Salva Modifiche" : "Crea Festa"}
+            <button type="submit" disabled={isSubmitting} className="flex-1 btn-primary disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              {isSubmitting
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{isEdit ? "Salvataggio..." : "Creazione..."}</>
+                : isEdit ? "Salva Modifiche" : "Crea Festa"
+              }
             </button>
           </div>
         </form>

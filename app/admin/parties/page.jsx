@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Package, Clock, Truck, Home, Warehouse,
   RefreshCw, CalendarDays, CheckCircle2, XCircle, WifiOff,
+  CheckCheck, TriangleAlert, Info, X as XIcon,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { PartyCard } from "@/components/parties/party-card";
@@ -28,6 +29,44 @@ import {
   getPartyMacroIds,
 } from "./actions";
 import { cacheManager } from "@/lib/cache/db";
+
+
+// ─── Toast system ─────────────────────────────────────────────────────────────
+function ToastContainer({ toasts, removeToast }) {
+  return (
+    <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <AnimatePresence>
+        {toasts.map((t) => {
+          const configs = {
+            success: { icon: <CheckCheck className="w-4 h-4" />, cls: "bg-green-600 text-white" },
+            error:   { icon: <TriangleAlert className="w-4 h-4" />, cls: "bg-red-600 text-white" },
+            info:    { icon: <Info className="w-4 h-4" />, cls: "bg-foreground text-background" },
+          };
+          const cfg = configs[t.type] || configs.info;
+          return (
+            <motion.div key={t.id} initial={{ opacity: 0, y: 16, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.95 }}
+              className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl text-sm font-medium max-w-sm ${cfg.cls}`}>
+              {cfg.icon}
+              <span className="flex-1">{t.message}</span>
+              <button onClick={() => removeToast(t.id)} className="opacity-70 hover:opacity-100 ml-1"><XIcon className="w-3.5 h-3.5" /></button>
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function useToast() {
+  const [toasts, setToasts] = useState([]);
+  const add = useCallback((message, type = "info", duration = 3500) => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), duration);
+  }, []);
+  const remove = useCallback((id) => setToasts((prev) => prev.filter((t) => t.id !== id)), []);
+  return { toasts, toast: add, removeToast: remove };
+}
 
 const fetcher = () => getPartiesData();
 
@@ -58,6 +97,9 @@ function SyncStatusBar({ status, rowsFetched, rowsUpserted, errorMsg, onRetry })
 }
 
 export default function PartiesPage() {
+  // ── Toast ──
+  const { toasts, toast, removeToast } = useToast();
+
   // ── Sync / date ──
   const [selectedDate, setSelectedDate] = useState(todayISO());
   const [syncStatus, setSyncStatus] = useState(null);
@@ -73,6 +115,7 @@ export default function PartiesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState([]);
   const [showFormModal, setShowFormModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [editParty, setEditParty] = useState(null);
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [selectedParty, setSelectedParty] = useState(null);
@@ -219,14 +262,24 @@ export default function PartiesPage() {
   // ── CRUD ──
   const handleAddParty = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await createParty({ ...newParty, selectedMaterials, selectedSingleItems });
-      await runSyncForDate(selectedDate);
+      // Chiudi subito il form per feedback immediato
       setShowFormModal(false);
       setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [] });
       setSelectedMaterials([]);
       setSelectedSingleItems([]);
-    } catch (err) { console.error("Error creating party:", err); alert("Errore nella creazione della festa"); }
+      toast("Festa creata con successo!", "success");
+      // Ricarica in background
+      runSyncForDate(selectedDate);
+    } catch (err) {
+      console.error("Error creating party:", err);
+      toast("Errore nella creazione della festa", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleEditParty = async (party) => {
@@ -246,14 +299,21 @@ export default function PartiesPage() {
 
   const handleUpdateParty = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
-      // Passa selectedMaterials così updateParty può sincronizzare party_inventory
       await updateParty(editParty.id, { ...editParty, selectedMaterials });
-      await runSyncForDate(selectedDate);
       setShowFormModal(false);
       setEditParty(null);
       setSelectedMaterials([]);
-    } catch (err) { console.error("Error updating party:", err); alert("Errore nell'aggiornamento della festa"); }
+      toast("Festa aggiornata con successo!", "success");
+      runSyncForDate(selectedDate);
+    } catch (err) {
+      console.error("Error updating party:", err);
+      toast("Errore nell'aggiornamento della festa", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleAssignMaterial = async (macroId) => {
@@ -277,10 +337,19 @@ export default function PartiesPage() {
   const handleDeleteParty = async (partyId) => {
     if (!confirm("Sei sicuro di voler eliminare questa festa?")) return;
     try {
+      // Rimuovi subito dalla lista locale per feedback immediato
+      setSyncedParties((prev) => (prev || []).filter((p) => p.id !== partyId));
       await deleteParty(partyId);
       await cacheManager.deletePartyFromCache(partyId);
-      await runSyncForDate(selectedDate);
-    } catch (err) { console.error("Error deleting party:", err); alert("Errore nell'eliminazione della festa"); }
+      toast("Festa eliminata", "success");
+      // Ricarica in background per aggiornare scaffali liberi ecc.
+      runSyncForDate(selectedDate);
+    } catch (err) {
+      console.error("Error deleting party:", err);
+      toast("Errore nell'eliminazione della festa", "error");
+      // Ripristina la lista in caso di errore
+      runSyncForDate(selectedDate);
+    }
   };
 
   const openMaterialModal = async (party) => {
@@ -450,6 +519,7 @@ export default function PartiesPage() {
               const setter = editParty ? setEditParty : setNewParty;
               setter((prev) => ({ ...prev, shelves: prev.shelves.filter((s) => s !== shelf) }));
             }}
+            isSubmitting={isSubmitting}
             onSubmit={editParty ? handleUpdateParty : handleAddParty}
             onCancel={() => { setShowFormModal(false); setEditParty(null); setSelectedMaterials([]); setSelectedSingleItems([]); }}
             allParties={parties}
@@ -471,6 +541,8 @@ export default function PartiesPage() {
             onClose={() => setShowMaterialModal(false)}
             onRefresh={async () => { if (selectedParty) await loadPartyMaterialsData(selectedParty.id); }}
           />
+
+          <ToastContainer toasts={toasts} removeToast={removeToast} />
 
           <PartyHistoryModal
             isOpen={showHistoryModal}
