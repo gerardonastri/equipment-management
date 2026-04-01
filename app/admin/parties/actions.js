@@ -161,7 +161,7 @@ export async function getLastSyncInfo(date) {
  * (stato != 'scaricato_scaffale'), escludendo la festa corrente.
  * Usato per disabilitare le macro non disponibili.
  */
-export async function getUsedMacroIds(excludePartyId = null) {
+export async function getUsedMacroIds(excludePartyId = null, partyDate = null) {
   const supabase = await createServerClient();
 
   // Prendi tutte le feste attive
@@ -172,6 +172,12 @@ export async function getUsedMacroIds(excludePartyId = null) {
 
   if (excludePartyId) {
     query = query.neq("id", excludePartyId);
+  }
+
+  // Se viene passata una data, il materiale è in conflitto SOLO con feste
+  // della stessa giornata. Feste di giorni diversi non bloccano il materiale.
+  if (partyDate) {
+    query = query.eq("data", partyDate);
   }
 
   const { data: activeParties } = await query;

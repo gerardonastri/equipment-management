@@ -131,9 +131,10 @@ export function PartyFormModal({
               className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="iniziale">Iniziale</option>
+              <option value="caricato_scaffale">Caricato sullo Scaffale</option>
               <option value="caricato_furgone">Caricato nel Furgone</option>
               <option value="scaricato_furgone">Scaricato dal Furgone</option>
-              <option value="scaricato_scaffale">Scaricato da Scaffale</option>
+              <option value="scaricato_scaffale">Scaricato dallo Scaffale (completato)</option>
             </select>
           </div>
 

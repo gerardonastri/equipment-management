@@ -27,8 +27,8 @@ export async function getPartyDataForShelf(shelfId) {
     const matchingParties =
       parties?.filter((party) => {
         if (!party.shelves) return false;
-        const shelvesList = party.shelves.split(",").map((s) => s.trim());
-        return shelvesList.includes(shelfId);
+        const shelvesList = party.shelves.split(",").map((s) => s.trim().toUpperCase());
+        return shelvesList.includes(shelfId.trim().toUpperCase());
       }) || [];
 
     console.log("[v0] Matching parties for shelf", shelfId, ":", matchingParties);
@@ -37,7 +37,34 @@ export async function getPartyDataForShelf(shelfId) {
       return { error: "Nessuna festa trovata per questo scaffale" };
     }
 
-    const party = matchingParties[0];
+    // Se ci sono più feste sullo stesso scaffale, seleziona quella del giorno stesso
+    // oppure la più vicina alla data odierna (differenza assoluta minima).
+    let party;
+    if (matchingParties.length === 1) {
+      party = matchingParties[0];
+    } else {
+      const todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+      const today = new Date(todayStr);
+
+      // Prima cerca una festa di oggi
+      const todayParty = matchingParties.find((p) => p.data === todayStr);
+      if (todayParty) {
+        party = todayParty;
+      } else {
+        // Seleziona quella con data più vicina a oggi (futura preferita su passata a parità)
+        party = matchingParties.reduce((best, p) => {
+          const diffBest = new Date(best.data) - today;
+          const diffP    = new Date(p.data) - today;
+          // Preferisci date future (diff >= 0) su passate; a parità di segno, prendi la minima distanza
+          const absBest = Math.abs(diffBest);
+          const absP    = Math.abs(diffP);
+          if (diffBest < 0 && diffP >= 0) return p;   // p è futura, best è passata
+          if (diffP < 0 && diffBest >= 0) return best; // best è futura, p è passata
+          return absP < absBest ? p : best;             // stessa direzione: prendi la più vicina
+        });
+      }
+    }
+
     console.log("[v0] Selected party:", party);
 
     const { data: checks, error: checksError } = await supabase
