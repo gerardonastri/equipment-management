@@ -3,7 +3,110 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShelfSelector } from "./shelf-selector";
-import { Star, Package, ChevronDown, ChevronRight, AlertCircle, Loader2 } from "lucide-react";
+import {
+  Star, Package, ChevronDown, ChevronRight, AlertCircle,
+  ArrowRight, Trash2, PlusCircle,
+} from "lucide-react";
+
+// ─── Mappa stato → check richiesti ────────────────────────────────────────────
+const STATO_TO_CHECKS = {
+  iniziale:           [],
+  caricato_scaffale:  ["Deposito → Scaffale"],
+  caricato_furgone:   ["Deposito → Scaffale", "Scaffale → Furgone"],
+  scaricato_furgone:  ["Deposito → Scaffale", "Scaffale → Furgone", "Furgone → Scaffale"],
+  scaricato_scaffale: ["Deposito → Scaffale", "Scaffale → Furgone", "Furgone → Scaffale", "Scaffale → Deposito"],
+};
+
+const STATO_ORDER = [
+  "iniziale",
+  "caricato_scaffale",
+  "caricato_furgone",
+  "scaricato_furgone",
+  "scaricato_scaffale",
+];
+
+function getStatoIndex(stato) {
+  return STATO_ORDER.indexOf(stato ?? "iniziale");
+}
+
+/**
+ * Banner contestuale che avvisa l'admin di cosa succede ai check
+ * quando cambia lo stato della festa in modifica.
+ */
+function CheckSyncWarning({ originalStato, newStato }) {
+  if (!originalStato || originalStato === newStato) return null;
+
+  const origIdx = getStatoIndex(originalStato);
+  const newIdx  = getStatoIndex(newStato);
+  if (origIdx === newIdx) return null;
+
+  const isAdvance  = newIdx > origIdx;
+  const checks     = STATO_TO_CHECKS[newStato] ?? [];
+
+  if (isAdvance) {
+    const origChecks = STATO_TO_CHECKS[originalStato] ?? [];
+    const toCreate   = checks.filter((c) => !origChecks.includes(c));
+    if (!toCreate.length) return null;
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: "auto" }}
+        exit={{ opacity: 0, height: 0 }}
+        className="overflow-hidden"
+      >
+        <div className="flex gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm">
+          <PlusCircle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-blue-800">
+              Verranno creati {toCreate.length} check automatici
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {toCreate.map((c) => (
+                <li key={c} className="text-blue-700 flex items-center gap-1.5">
+                  <ArrowRight className="w-3 h-3 shrink-0" />{c}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Arretramento
+  const origChecks = STATO_TO_CHECKS[originalStato] ?? [];
+  const toDelete   = origChecks.filter((c) => !checks.includes(c));
+  if (!toDelete.length) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      exit={{ opacity: 0, height: 0 }}
+      className="overflow-hidden"
+    >
+      <div className="flex gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+        <Trash2 className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold text-amber-800">
+            Verranno eliminati {toDelete.length} check già completati
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {toDelete.map((c) => (
+              <li key={c} className="text-amber-700 flex items-center gap-1.5">
+                <ArrowRight className="w-3 h-3 shrink-0" />{c}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-amber-600 text-xs">
+            Le segnalazioni (losses) collegate a questi check verranno rimosse.
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 export function PartyFormModal({
   isOpen,
@@ -19,24 +122,29 @@ export function PartyFormModal({
   onSubmit,
   onCancel,
   allParties,
-  usedMacroIds,            // Set<string> — macro già usate in altre feste attive
-  isSubmitting = false,    // disabilita il bottone durante il submit
-  // Per la modalità festa speciale alla creazione
-  specialItemHierarchy,    // gerarchia macro→cat→sotto disponibili
-  selectedSingleItems,     // string[]
-  onSingleItemToggle,      // (itemId) => void
+  usedMacroIds,
+  isSubmitting = false,
+  specialItemHierarchy,
+  selectedSingleItems,
+  onSingleItemToggle,
 }) {
   const [isSpecial, setIsSpecial] = useState(false);
   const [expandedMacro, setExpandedMacro] = useState({});
   const [expandedCat, setExpandedCat] = useState({});
+  // Stato originale al momento dell'apertura del modal (per calcolare il diff check)
+  const [originalStato, setOriginalStato] = useState(null);
 
   useEffect(() => {
     if (!isOpen) {
       setIsSpecial(false);
       setExpandedMacro({});
       setExpandedCat({});
+      setOriginalStato(null);
+    } else if (isEdit && party?.stato) {
+      // Memorizza lo stato iniziale solo alla prima apertura in modalità edit
+      setOriginalStato((prev) => prev ?? party.stato);
     }
-  }, [isOpen]);
+  }, [isOpen, isEdit, party?.stato]);
 
   if (!isOpen) return null;
 
@@ -123,8 +231,8 @@ export function PartyFormModal({
           </div>
 
           {/* Stato */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Stato</label>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">Stato</label>
             <select
               value={party.stato}
               onChange={(e) => onPartyChange({ ...party, stato: e.target.value })}
@@ -136,6 +244,17 @@ export function PartyFormModal({
               <option value="scaricato_furgone">Scaricato dal Furgone</option>
               <option value="scaricato_scaffale">Scaricato dallo Scaffale (completato)</option>
             </select>
+
+            {/* Avviso dinamico sui check */}
+            <AnimatePresence mode="wait">
+              {isEdit && originalStato && party.stato !== originalStato && (
+                <CheckSyncWarning
+                  key={party.stato}
+                  originalStato={originalStato}
+                  newStato={party.stato}
+                />
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Note */}
@@ -154,7 +273,6 @@ export function PartyFormModal({
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="block text-sm font-medium text-foreground">Materiale da Assegnare</label>
-              {/* Toggle Festa Speciale */}
               <button
                 type="button"
                 onClick={() => setIsSpecial((v) => !v)}
@@ -169,12 +287,11 @@ export function PartyFormModal({
               </button>
             </div>
 
-            {/* Lista macro con disponibilità */}
             <div className="border border-border rounded-xl p-4 max-h-48 overflow-y-auto mb-3">
               {macroCategories.length > 0 ? (
                 <div className="space-y-1.5">
                   {macroCategories.map((macro) => {
-                    const isSelected = selectedMaterials.includes(macro.id);
+                    const isSelected      = selectedMaterials.includes(macro.id);
                     const isUsedElsewhere = usedMacroIds?.has(macro.id) && !isSelected;
                     return (
                       <label
@@ -247,7 +364,9 @@ export function PartyFormModal({
                                 <Package className="w-3.5 h-3.5 text-amber-600" />
                                 <span className="text-sm font-medium text-foreground">{macro.name}</span>
                               </div>
-                              {expandedMacro[macro.id] ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                              {expandedMacro[macro.id]
+                                ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                                : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
                             </button>
 
                             <AnimatePresence>
@@ -260,7 +379,6 @@ export function PartyFormModal({
                                 >
                                   {macro.categories.map((cat) => (
                                     <div key={cat.id} className="mb-1">
-                                      {/* Categoria */}
                                       <div className="flex items-center gap-2 py-1">
                                         {cat.items.length > 0 && (
                                           <button
@@ -268,7 +386,9 @@ export function PartyFormModal({
                                             onClick={() => setExpandedCat((p) => ({ ...p, [cat.id]: !p[cat.id] }))}
                                             className="text-muted-foreground hover:text-foreground shrink-0"
                                           >
-                                            {expandedCat[cat.id] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                            {expandedCat[cat.id]
+                                              ? <ChevronDown className="w-3 h-3" />
+                                              : <ChevronRight className="w-3 h-3" />}
                                           </button>
                                         )}
                                         <label className={`flex items-center gap-2 flex-1 cursor-pointer ${cat.materiale_mancante ? "opacity-50 cursor-not-allowed" : ""}`}>
@@ -280,11 +400,12 @@ export function PartyFormModal({
                                             className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
                                           />
                                           <span className="text-xs font-medium text-foreground">{cat.name}</span>
-                                          {cat.materiale_mancante && <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>}
+                                          {cat.materiale_mancante && (
+                                            <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>
+                                          )}
                                         </label>
                                       </div>
 
-                                      {/* Sotto-elementi */}
                                       <AnimatePresence>
                                         {expandedCat[cat.id] && cat.items.length > 0 && (
                                           <motion.div
@@ -303,7 +424,9 @@ export function PartyFormModal({
                                                   className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
                                                 />
                                                 <span className="text-xs text-muted-foreground">{sub.name}</span>
-                                                {sub.materiale_mancante && <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>}
+                                                {sub.materiale_mancante && (
+                                                  <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>
+                                                )}
                                               </label>
                                             ))}
                                           </motion.div>
@@ -344,14 +467,21 @@ export function PartyFormModal({
 
           {/* Azioni */}
           <div className="flex space-x-3 pt-4">
-            <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
+            >
               Annulla
             </button>
-            <button type="submit" disabled={isSubmitting} className="flex-1 btn-primary disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-              {isSubmitting
-                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{isEdit ? "Salvataggio..." : "Creazione..."}</>
-                : isEdit ? "Salva Modifiche" : "Crea Festa"
-              }
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1 btn-primary disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? (
+                <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{isEdit ? "Salvataggio..." : "Creazione..."}</>
+              ) : isEdit ? "Salva Modifiche" : "Crea Festa"}
             </button>
           </div>
         </form>

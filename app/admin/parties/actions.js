@@ -11,7 +11,6 @@ const EXTERNAL_API_BASE = "http://93.39.183.62:99/s.movida/api/eventi.php";
 const SYNC_COOLDOWN_MINUTES = 5;
 
 function mapEventoToParty(evento) {
-  // Unisce nota_bene e servizi in un unico campo note
   const noteParts = [evento.nota_bene, evento.servizi].filter(Boolean).map((s) => s.trim()).filter(Boolean);
   return {
     external_id: String(evento.id_evento),
@@ -33,7 +32,7 @@ async function fetchEventsByDate(date) {
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   });
-  console.log(res)
+  console.log(res);
   if (!res.ok) throw new Error(`API responded with status ${res.status}`);
   const json = await res.json();
   return json?.eventi || [];
@@ -99,7 +98,7 @@ export async function syncPartiesByDate(date) {
 
     const toInsert = partiesToUpsert
       .filter((p) => !existingIds.has(p.external_id))
-      .map((p) => ({ ...p, shelves: "", stato: "iniziale" })); // cliente/categoria_evento/servizi already in p
+      .map((p) => ({ ...p, shelves: "", stato: "iniziale" }));
 
     const toUpdate = partiesToUpsert.filter((p) => existingIds.has(p.external_id));
 
@@ -153,60 +152,165 @@ export async function getLastSyncInfo(date) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CHECK SYNC — sincronizza i check in base allo stato della festa
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mappa stato festa → check che devono esistere.
+ * Ogni stato implica tutti i check precedenti nella sequenza.
+ */
+const STATO_TO_CHECKS = {
+  iniziale:           [],
+  caricato_scaffale:  ["deposito_scaffale"],
+  caricato_furgone:   ["deposito_scaffale", "scaffale_furgone"],
+  scaricato_furgone:  ["deposito_scaffale", "scaffale_furgone", "furgone_scaffale"],
+  scaricato_scaffale: ["deposito_scaffale", "scaffale_furgone", "furgone_scaffale", "scaffale_deposito"],
+};
+
+const CHECK_TYPE_NOTES = {
+  deposito_scaffale: "Check creato automaticamente da admin (avanzamento stato manuale)",
+  scaffale_furgone:  "Check creato automaticamente da admin (avanzamento stato manuale)",
+  furgone_scaffale:  "Check creato automaticamente da admin (avanzamento stato manuale)",
+  scaffale_deposito: "Check creato automaticamente da admin (avanzamento stato manuale)",
+};
+
+/**
+ * Sincronizza la tabella `checks` al nuovo stato della festa.
+ *
+ * Avanzamento → crea i check mancanti (sintetici, firmati dall'animatore/magazziniere/admin)
+ * Arretramento → elimina i check in eccesso + relative losses e check_items
+ */
+async function syncChecksForParty(supabase, partyId, newStato, partyRow) {
+  const requiredChecks = STATO_TO_CHECKS[newStato] ?? [];
+
+  const { data: existingChecks, error: fetchErr } = await supabase
+    .from("checks")
+    .select("id, type")
+    .eq("party_id", partyId);
+
+  if (fetchErr) {
+    console.error("[v0] syncChecks: error fetching checks:", fetchErr);
+    return;
+  }
+
+  const existing = existingChecks || [];
+  const existingTypes = new Set(existing.map((c) => c.type));
+
+  // ── Avanzamento: crea check mancanti ────────────────────────────────────────
+  const toCreate = requiredChecks.filter((type) => !existingTypes.has(type));
+
+  if (toCreate.length > 0) {
+    const animatoreId    = partyRow?.animatore_id    || null;
+    const magazziniereId = partyRow?.magazziniere_id || null;
+
+    // Fallback: primo amministratore disponibile
+    let fallbackUserId = animatoreId || magazziniereId;
+    if (!fallbackUserId) {
+      const { data: adminUser } = await supabase
+        .from("users")
+        .select("id")
+        .eq("ruolo", "amministratore")
+        .limit(1)
+        .maybeSingle();
+      fallbackUserId = adminUser?.id || null;
+    }
+
+    for (const type of toCreate) {
+      // I check di carico/scarico furgone sono tipicamente dell'animatore
+      let userId = fallbackUserId;
+      if (type === "scaffale_furgone" || type === "furgone_scaffale") {
+        userId = animatoreId || magazziniereId || fallbackUserId;
+      } else {
+        userId = magazziniereId || animatoreId || fallbackUserId;
+      }
+
+      if (!userId) {
+        console.warn(`[v0] syncChecks: nessun user_id per check "${type}" — skip`);
+        continue;
+      }
+
+      const { error: insertErr } = await supabase.from("checks").insert({
+        party_id:          partyId,
+        user_id:           userId,
+        type,
+        notes:             CHECK_TYPE_NOTES[type],
+        materiale_smarrito: false,
+      });
+
+      if (insertErr) {
+        console.error(`[v0] syncChecks: errore creando check "${type}":`, insertErr);
+      } else {
+        console.log(`[v0] syncChecks: check "${type}" creato per festa ${partyId}`);
+      }
+    }
+  }
+
+  // ── Arretramento: elimina check in eccesso ───────────────────────────────────
+  const requiredSet = new Set(requiredChecks);
+  const toDelete = existing.filter((c) => !requiredSet.has(c.type));
+
+  if (toDelete.length > 0) {
+    const idsToDelete = toDelete.map((c) => c.id);
+
+    // Dipendenze: check_items prima, poi losses collegate al check
+    try { await supabase.from("check_items").delete().in("check_id", idsToDelete); } catch (_) {}
+    await supabase.from("inventory_losses").delete().in("check_id", idsToDelete);
+
+    const { error: delErr } = await supabase
+      .from("checks")
+      .delete()
+      .in("id", idsToDelete);
+
+    if (delErr) {
+      console.error("[v0] syncChecks: errore eliminando check:", delErr);
+    } else {
+      console.log(`[v0] syncChecks: eliminati ${idsToDelete.length} check per festa ${partyId}`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DISPONIBILITÀ MATERIALE
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Restituisce i macro_id già assegnati a feste ANCORA ATTIVE
  * (stato != 'scaricato_scaffale'), escludendo la festa corrente.
- * Usato per disabilitare le macro non disponibili.
+ * Se viene passata partyDate, blocca solo le macro di feste della stessa data
+ * (feste di giorni diversi non confliggono sul materiale).
  */
 export async function getUsedMacroIds(excludePartyId = null, partyDate = null) {
   const supabase = await createServerClient();
 
-  // Prendi tutte le feste attive
   let query = supabase
     .from("parties")
     .select("id")
     .neq("stato", "scaricato_scaffale");
 
-  if (excludePartyId) {
-    query = query.neq("id", excludePartyId);
-  }
-
-  // Se viene passata una data, il materiale è in conflitto SOLO con feste
-  // della stessa giornata. Feste di giorni diversi non bloccano il materiale.
-  if (partyDate) {
-    query = query.eq("data", partyDate);
-  }
+  if (excludePartyId) query = query.neq("id", excludePartyId);
+  if (partyDate)      query = query.eq("data", partyDate);
 
   const { data: activeParties } = await query;
   if (!activeParties?.length) return new Set();
 
   const activeIds = activeParties.map((p) => p.id);
 
-  // Prendi gli inventory_id assegnati a quelle feste (solo quelli di tipo macro)
   const { data: assignments } = await supabase
     .from("party_inventory")
     .select("inventory_id, inventory_items!inner(id, type)")
     .in("party_id", activeIds)
     .eq("inventory_items.type", "macro");
 
-  const usedIds = new Set((assignments || []).map((a) => a.inventory_id));
-  return usedIds;
+  return new Set((assignments || []).map((a) => a.inventory_id));
 }
 
 /**
- * Per una festa, restituisce i sotto-elementi disponibili per l'aggiunta singola
- * in modalità "festa speciale".
- *
- * Logica: prende tutte le categorie e sotto di macro NON già assegnate alla festa,
- * raggruppate per macro → categoria → sotto.
+ * Per una festa, restituisce i sotto-elementi disponibili per la modalità
+ * "festa speciale" (macro non assegnate, esplorate fino al livello sotto).
  */
 export async function getAvailableItemsForSpecialParty(partyId) {
   const supabase = await createServerClient();
 
-  // 1. Trova le macro già assegnate a questa festa
   const { data: assigned } = await supabase
     .from("party_inventory")
     .select("inventory_id, inventory_items!inner(type)")
@@ -215,19 +319,15 @@ export async function getAvailableItemsForSpecialParty(partyId) {
 
   const assignedMacroIds = new Set((assigned || []).map((a) => a.inventory_id));
 
-  // 2. Prendi tutte le macro dell'inventario
   const { data: allMacros } = await supabase
     .from("inventory_items")
     .select("id, name, type")
     .eq("type", "macro")
     .order("name");
 
-  // 3. Filtra le macro NON assegnate
   const unassignedMacros = (allMacros || []).filter((m) => !assignedMacroIds.has(m.id));
-
   if (!unassignedMacros.length) return [];
 
-  // 4. Per ogni macro non assegnata, carica categorie e sotto
   const result = [];
   for (const macro of unassignedMacros) {
     const { data: categories } = await supabase
@@ -245,25 +345,18 @@ export async function getAvailableItemsForSpecialParty(partyId) {
         .eq("parent_id", cat.id)
         .eq("type", "sotto")
         .order("name");
-
       cats.push({ ...cat, items: subs || [] });
     }
 
-    if (cats.length > 0) {
-      result.push({ ...macro, categories: cats });
-    }
+    if (cats.length > 0) result.push({ ...macro, categories: cats });
   }
 
   return result;
 }
 
-/**
- * Assegna un singolo elemento (categoria o sotto) a una festa tramite party_inventory.
- */
 export async function assignSingleItem(partyId, itemId) {
   const supabase = await createServerClient();
 
-  // Evita duplicati
   const { data: existing } = await supabase
     .from("party_inventory")
     .select("id")
@@ -280,9 +373,6 @@ export async function assignSingleItem(partyId, itemId) {
   return { success: true };
 }
 
-/**
- * Rimuove un singolo elemento (categoria o sotto) da una festa.
- */
 export async function removeSingleItem(partyId, itemId) {
   const supabase = await createServerClient();
   const { error } = await supabase
@@ -329,13 +419,11 @@ export async function getPartyMaterials(partyId) {
   if (itemsError) { console.error("[v0] Error loading party items:", itemsError); return []; }
   if (!partyItems?.length) return [];
 
-  // Separa macro, categorie e sotto
-  const macroItems = partyItems.filter((i) => i.inventory_items.type === "macro");
+  const macroItems  = partyItems.filter((i) => i.inventory_items.type === "macro");
   const singleItems = partyItems.filter((i) => i.inventory_items.type !== "macro");
 
   const result = [];
 
-  // Carica gerarchia completa per le macro
   for (const item of macroItems) {
     const macro = item.inventory_items;
     const { data: categories } = await supabase
@@ -357,17 +445,13 @@ export async function getPartyMaterials(partyId) {
     result.push({ ...macro, categories: categoriesWithSubs, _isMacro: true });
   }
 
-  // Aggiungi gli elementi singoli raggruppati per macro padre
   const singleByMacro = {};
   for (const item of singleItems) {
     const el = item.inventory_items;
-    // Trova il macro antenato
     let macroId = null;
     if (el.type === "categoria") {
-      // parent_id è il macro
       macroId = el.parent_id;
     } else if (el.type === "sotto") {
-      // parent_id è la categoria → dobbiamo trovare il nonno
       const { data: parent } = await supabase
         .from("inventory_items")
         .select("parent_id")
@@ -379,31 +463,20 @@ export async function getPartyMaterials(partyId) {
     singleByMacro[macroId].push({ ...el, _isSingle: true });
   }
 
-  // Raggruppa gli elementi singoli sotto il loro macro
   for (const [macroId, items] of Object.entries(singleByMacro)) {
-    // Potrebbe esserci già il macro nella lista (se ha anche la macro completa)
     const existing = result.find((r) => r.id === macroId);
     if (existing) {
       if (!existing._singleItems) existing._singleItems = [];
       existing._singleItems.push(...items);
     } else {
-      // Carica il macro padre
       const { data: macro } = await supabase.from("inventory_items").select("*").eq("id", macroId).single();
-      if (macro) {
-        result.push({ ...macro, categories: [], _isMacro: false, _singleItems: items });
-      }
+      if (macro) result.push({ ...macro, categories: [], _isMacro: false, _singleItems: items });
     }
   }
 
   return result;
 }
 
-/**
- * Carica lo storico completo di una festa.
- *
- * - `losses`       → TUTTE le losses (anche resolved) — per lo storico nel modal
- * - `activeLosses` → solo resolved=false — per gli alert sulla card e nel check
- */
 export async function getPartyHistory(partyId) {
   const supabase = await createServerClient();
 
@@ -427,16 +500,11 @@ export async function getPartyHistory(partyId) {
 
   return {
     checks: checks || [],
-    losses: allLosses,                               // storico completo → party-history-modal
-    activeLosses: allLosses.filter((l) => !l.resolved), // solo attive → alert card + check
+    losses: allLosses,
+    activeLosses: allLosses.filter((l) => !l.resolved),
   };
 }
 
-
-/**
- * Restituisce gli ID delle macro già assegnate a una festa.
- * Usato per pre-selezionare le checkbox nel form di modifica.
- */
 export async function getPartyMacroIds(partyId) {
   const supabase = await createServerClient();
   const { data } = await supabase
@@ -451,21 +519,21 @@ export async function createParty(formData) {
   const supabase = await createServerClient();
 
   const partyData = {
-    nome: formData.nome,
-    data: formData.data,
-    luogo: formData.luogo,
-    animatore_id: formData.animatore_id || null,
+    nome:            formData.nome,
+    data:            formData.data,
+    luogo:           formData.luogo,
+    animatore_id:    formData.animatore_id    || null,
     magazziniere_id: formData.magazziniere_id || null,
-    stato: formData.stato,
-    note: formData.note,
-    shelves: formData.shelves.join(","),
+    stato:           formData.stato,
+    note:            formData.note,
+    shelves:         formData.shelves.join(","),
   };
 
   const { data, error } = await supabase.from("parties").insert([partyData]).select();
   if (error) throw error;
 
   const allItemIds = [
-    ...(formData.selectedMaterials || []),
+    ...(formData.selectedMaterials  || []),
     ...(formData.selectedSingleItems || []),
   ];
 
@@ -475,6 +543,11 @@ export async function createParty(formData) {
     if (materialError) throw materialError;
   }
 
+  // Se la festa viene creata con uno stato già avanzato, genera i check corrispondenti
+  if (formData.stato && formData.stato !== "iniziale" && data[0]) {
+    await syncChecksForParty(supabase, data[0].id, formData.stato, data[0]);
+  }
+
   revalidatePath("/admin/parties");
   return { success: true, data: data[0] };
 }
@@ -482,25 +555,29 @@ export async function createParty(formData) {
 export async function updateParty(partyId, formData) {
   const supabase = await createServerClient();
 
+  // Legge lo stato precedente prima di modificare
+  const { data: prevParty } = await supabase
+    .from("parties")
+    .select("stato, animatore_id, magazziniere_id")
+    .eq("id", partyId)
+    .single();
+
   const partyData = {
-    nome: formData.nome,
-    data: formData.data,
-    luogo: formData.luogo,
-    animatore_id: formData.animatore_id || null,
+    nome:            formData.nome,
+    data:            formData.data,
+    luogo:           formData.luogo,
+    animatore_id:    formData.animatore_id    || null,
     magazziniere_id: formData.magazziniere_id || null,
-    stato: formData.stato,
-    note: formData.note,
-    shelves: formData.shelves.join(","),
+    stato:           formData.stato,
+    note:            formData.note,
+    shelves:         formData.shelves.join(","),
   };
 
   const { data, error } = await supabase.from("parties").update(partyData).eq("id", partyId).select();
   if (error) throw error;
 
-  // Salva il materiale (macro + singoli) se passato nel form.
-  // Strategia: elimina tutto il materiale esistente e reinserisce la selezione corrente.
-  // Questo garantisce che deselezionare una macro la rimuova effettivamente.
+  // ── Sync materiale (macro) ────────────────────────────────────────────────
   if (formData.selectedMaterials !== undefined) {
-    // Rimuovi solo le macro (non i singoli elementi — quelli sono gestiti da assignSingleItem/removeSingleItem)
     const { data: existingMacros } = await supabase
       .from("party_inventory")
       .select("inventory_id, inventory_items!inner(type)")
@@ -508,19 +585,13 @@ export async function updateParty(partyId, formData) {
       .eq("inventory_items.type", "macro");
 
     const existingMacroIds = (existingMacros || []).map((m) => m.inventory_id);
-    const newMacroIds = formData.selectedMaterials || [];
+    const newMacroIds      = formData.selectedMaterials || [];
 
-    // Rimuovi le macro deselezionate
     const toRemove = existingMacroIds.filter((id) => !newMacroIds.includes(id));
     if (toRemove.length > 0) {
-      await supabase
-        .from("party_inventory")
-        .delete()
-        .eq("party_id", partyId)
-        .in("inventory_id", toRemove);
+      await supabase.from("party_inventory").delete().eq("party_id", partyId).in("inventory_id", toRemove);
     }
 
-    // Aggiungi le macro nuove (non già presenti)
     const toAdd = newMacroIds.filter((id) => !existingMacroIds.includes(id));
     if (toAdd.length > 0) {
       const assignments = toAdd.map((id) => ({ party_id: partyId, inventory_id: id }));
@@ -529,38 +600,43 @@ export async function updateParty(partyId, formData) {
     }
   }
 
+  // ── Sync checks in base al cambio di stato ───────────────────────────────
+  const prevStato = prevParty?.stato;
+  const newStato  = formData.stato;
+
+  if (prevStato !== newStato) {
+    console.log(`[v0] Stato cambiato: ${prevStato} → ${newStato} — sincronizzo i check`);
+    await syncChecksForParty(supabase, partyId, newStato, {
+      animatore_id:    formData.animatore_id    || prevParty?.animatore_id    || null,
+      magazziniere_id: formData.magazziniere_id || prevParty?.magazziniere_id || null,
+    });
+  }
+
   revalidatePath("/admin/parties");
+  revalidatePath("/admin/check");
   return { success: true, data: data[0] };
 }
 
 export async function deleteParty(partyId) {
   const supabase = await createServerClient();
 
-  // Elimina prima i record collegati per rispettare i vincoli di foreign key.
-  // Ordine: prima le tabelle figlie, poi la festa stessa.
-
-  // 1. inventory_losses collegate alla festa
+  // 1. inventory_losses della festa
   const { error: lossesError } = await supabase
     .from("inventory_losses")
     .delete()
     .eq("party_id", partyId);
   if (lossesError) { console.error("[v0] Error deleting losses:", lossesError); throw lossesError; }
 
-  // 2. check_items (figli dei checks) + checks
-  const { data: checks } = await supabase
-    .from("checks")
-    .select("id")
-    .eq("party_id", partyId);
-
+  // 2. check_items + checks
+  const { data: checks } = await supabase.from("checks").select("id").eq("party_id", partyId);
   if (checks?.length) {
     const checkIds = checks.map((c) => c.id);
-    // check_items potrebbe non esistere — ignoriamo l'errore
     try { await supabase.from("check_items").delete().in("check_id", checkIds); } catch (_) {}
     const { error: checksError } = await supabase.from("checks").delete().eq("party_id", partyId);
     if (checksError) { console.error("[v0] Error deleting checks:", checksError); throw checksError; }
   }
 
-  // 3. Materiale assegnato (party_inventory)
+  // 3. party_inventory
   const { error: invError } = await supabase.from("party_inventory").delete().eq("party_id", partyId);
   if (invError) { console.error("[v0] Error deleting party_inventory:", invError); throw invError; }
 
