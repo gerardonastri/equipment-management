@@ -23,13 +23,16 @@ import {
   Euro,
   FileText,
   Layers,
+  CopyPlus,
 } from "lucide-react";
 import useSWR from "swr";
 import {
   getInventoryItems,
   deleteInventoryItem,
   getItemDetails,
+  duplicateInventoryItem,
 } from "@/app/actions/inventory-actions";
+import DuplicateMacroModal from "@/components/inventory/duplicate-macro-modal";
 import InventoryFormModal from "@/components/inventory/inventory-form-modal";
 import ImageUploadModal from "@/components/inventory/image-upload-modal";
 import Navbar from "@/components/navbar";
@@ -283,6 +286,9 @@ export default function InventoryPage() {
   const [isDeleting, setIsDeleting]         = useState(false);
   const [nfcOpenId, setNfcOpenId]           = useState(null);
   const [detailItem, setDetailItem]         = useState(null);
+  const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
+  const [duplicateItem, setDuplicateItem]     = useState(null);
+  const [isDuplicating, setIsDuplicating]     = useState(false);
 
   const typeCategories = ["all", ...new Set(allItems.map((item) => item.type).filter(Boolean))];
 
@@ -320,6 +326,19 @@ export default function InventoryPage() {
   };
 
   const openDetail = (e, item) => { e.stopPropagation(); setNfcOpenId(null); setDetailItem(item); };
+
+  const handleDuplicate = async (macroId, newName, suffix, propagatePrefix) => {
+    setIsDuplicating(true);
+    try {
+      const result = await duplicateInventoryItem(macroId, newName, suffix);
+      if (result.error) { alert(result.error); return; }
+      mutate();
+      setIsDuplicateOpen(false);
+      setDuplicateItem(null);
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
 
   // Badge stato per la card
   const getItemStatusBadge = (item) => {
@@ -447,6 +466,12 @@ export default function InventoryPage() {
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary text-sm font-medium transition-colors">
                         <ChevronRight className="w-4 h-4" />Dettagli
                       </button>
+                      {item.type === "macro" && (
+                        <button onClick={(e) => { e.stopPropagation(); setDuplicateItem(item); setIsDuplicateOpen(true); }}
+                          className="flex items-center justify-center px-3 py-2 rounded-lg border border-border hover:bg-surface text-sm transition-colors text-muted-foreground hover:text-primary" title="Duplica macro">
+                          <CopyPlus className="w-4 h-4" />
+                        </button>
+                      )}
                       <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setIsFormOpen(true); }}
                         className="flex items-center justify-center px-3 py-2 rounded-lg border border-border hover:bg-surface text-sm transition-colors" title="Modifica">
                         <Edit className="w-4 h-4" />
@@ -483,6 +508,16 @@ export default function InventoryPage() {
           )}
         </motion.div>
       </div>
+
+      <AnimatePresence>
+        {isDuplicateOpen && duplicateItem && (
+          <DuplicateMacroModal
+            item={duplicateItem}
+            onClose={() => { setIsDuplicateOpen(false); setDuplicateItem(null); }}
+            onDuplicate={handleDuplicate}
+          />
+        )}
+      </AnimatePresence>
 
       <InventoryFormModal isOpen={isFormOpen} onClose={() => { setIsFormOpen(false); setSelectedItem(null); }} item={selectedItem}
         onSuccess={() => { mutate(); setIsFormOpen(false); setSelectedItem(null); setPage(1); }} />

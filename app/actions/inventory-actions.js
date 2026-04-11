@@ -226,3 +226,182 @@ export async function uploadInventoryImage(itemId, file) {
     return { error: error.message };
   }
 }
+/**
+ * Duplica una macro categoria con tutta la gerarchia (categorie + sotto).
+ *
+ * @param macroId      - ID della macro da duplicare
+ * @param newMacroName - Nome della nuova macro (scelto dall'utente)
+ * @param suffix       - Suffisso da appendere ai nomi figli es. " v2", " dup"
+ *
+ * Strategia suffix sulle lettere:
+ * Il codice prefix (es. "AC-") viene rilevato automaticamente dal nome della macro originale.
+ * Se il nuovo nome ha un prefix diverso (es. "BC-"), viene propagato a tutti i figli.
+ * Altrimenti viene semplicemente aggiunto il suffix.
+ */
+export async function duplicateInventoryItem(macroId, newMacroName, suffix = " v2") {
+  const supabase = await createClient();
+
+  // 1. Carica la macro originale
+  const { data: macro, error: macroError } = await supabase
+    .from("inventory_items")
+    .select("*")
+    .eq("id", macroId)
+    .single();
+
+  if (macroError || !macro) return { error: "Macro non trovata." };
+
+  // Rileva il prefix del nome originale (tutto ciò che precede il primo spazio o le prime lettere+trattino)
+  // Es. "AUDIO (Mini Club) AC-" → prefix "AC-", "Baby SPA AC-" → prefix "AC-"
+  // Cerca pattern tipo "XX-" o "XX-NNN" alla fine del nome
+  const oldPrefix = extractPrefix(macro.name);
+  const newPrefix = extractPrefix(newMacroName);
+  const prefixChanged = oldPrefix && newPrefix && oldPrefix !== newPrefix;
+
+  // 2. Crea la nuova macro
+  const { data: newMacro, error: insertMacroError } = await supabase
+    .from("inventory_items")
+    .insert([{
+      name: newMacroName,
+      type: "macro",
+      parent_id: null,
+      materiale_mancante: false,
+      image_url: macro.image_url || null,
+    }])
+    .select()
+    .single();
+
+  if (insertMacroError) return { error: insertMacroError.message };
+
+  // 3. Carica tutte le categorie della macro originale
+  const { data: categories } = await supabase
+    .from("inventory_items")
+    .select("*")
+    .eq("parent_id", macroId)
+    .eq("type", "categoria")
+    .order("name");
+
+  for (const cat of categories || []) {
+    const newCatName = renameItem(cat.name, oldPrefix, newPrefix, suffix, prefixChanged);
+
+    // Inserisci la categoria duplicata
+    const { data: newCat, error: catErr } = await supabase
+      .from("inventory_items")
+      .insert([{
+        name: newCatName,
+        type: "categoria",
+        parent_id: newMacro.id,
+        materiale_mancante: false,
+        image_url: cat.image_url || null,
+      }])
+      .select()
+      .single();
+
+    if (catErr) continue;
+
+    // 4. Carica e duplica tutti i sotto della categoria
+    const { data: subs } = await supabase
+      .from("inventory_items")
+      .select("*")
+      .eq("parent_id", cat.id)
+      .eq("type", "sotto")
+      .order("name");
+
+    if (subs?.length) {
+      const subInserts = subs.map((sub) => ({
+        name: renameItem(sub.name, oldPrefix, newPrefix, suffix, prefixChanged),
+        type: "sotto",
+        parent_id: newCat.id,
+        materiale_mancante: false,
+        image_url: sub.image_url || null,
+      }));
+
+      await supabase.from("inventory_items").insert(subInserts);
+    }
+  }
+
+  revalidatePath("/admin/inventory");
+  return { success: true, newId: newMacro.id };
+}
+
+/**
+ * Estrae il prefix tipo "AC-" o "ABC-" dalla fine del nome.
+ * Es: "AUDIO (Mini Club) AG-" → "AG-"
+ *     "Baby SPA AC-"          → "AC-"
+ *     "Basket Grande"         → null
+ */
+function extractPrefix(name) {
+  const match = name?.match(/\b([A-Z]{2,4}-(?:\d+)?)\s*$/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+/**
+ * Rinomina un item figlio in base alla strategia:
+ * - Se il prefix è cambiato (es. AC- → BC-), sostituisce il vecchio con il nuovo
+ * - Altrimenti aggiunge il suffix al nome
+ */
+function renameItem(name, oldPrefix, newPrefix, suffix, prefixChanged) {
+  if (prefixChanged && oldPrefix && name.toUpperCase().includes(oldPrefix.toUpperCase())) {
+    // Sostituisci il vecchio prefix con il nuovo (case-insensitive)
+    const regex = new RegExp(oldPrefix.replace(/[-]/g, "\\-"), "gi");
+    return name.replace(regex, newPrefix);
+  }
+  // Aggiungi suffix prima del codice se presente, altrimenti in fondo
+  const codeMatch = name.match(/\s+([A-Z]{2,4}-\d+)\s*$/i);
+  if (codeMatch) {
+    return name.slice(0, name.lastIndexOf(codeMatch[0])) + suffix + codeMatch[0];
+  }
+  return name + suffix;
+}
+
+/**
+ * Aggiorna il prefix del codice su una macro e tutti i suoi discendenti.
+ * Es: oldPrefix="AC-", newPrefix="BC-" aggiorna tutti i nomi che contengono "AC-"
+ *
+ * @param macroId   - ID della macro
+ * @param oldPrefix - Vecchio prefix (es. "AC-")
+ * @param newPrefix - Nuovo prefix (es. "BC-")
+ */
+export async function updatePrefixForMacroAndChildren(macroId, oldPrefix, newPrefix) {
+  const supabase = await createClient();
+
+  if (!oldPrefix || !newPrefix || oldPrefix === newPrefix) {
+    return { success: true, updated: 0 };
+  }
+
+  const prefixRegex = new RegExp(oldPrefix.replace(/[-]/g, "\\-"), "gi");
+
+  // Carica tutti i discendenti (categorie + sotto) della macro
+  const { data: cats } = await supabase
+    .from("inventory_items")
+    .select("id, name")
+    .eq("parent_id", macroId)
+    .eq("type", "categoria");
+
+  let updated = 0;
+
+  for (const cat of cats || []) {
+    if (cat.name.toUpperCase().includes(oldPrefix.toUpperCase())) {
+      const newName = cat.name.replace(prefixRegex, newPrefix);
+      await supabase.from("inventory_items").update({ name: newName }).eq("id", cat.id);
+      updated++;
+    }
+
+    // Sotto di questa categoria
+    const { data: subs } = await supabase
+      .from("inventory_items")
+      .select("id, name")
+      .eq("parent_id", cat.id)
+      .eq("type", "sotto");
+
+    for (const sub of subs || []) {
+      if (sub.name.toUpperCase().includes(oldPrefix.toUpperCase())) {
+        const newName = sub.name.replace(prefixRegex, newPrefix);
+        await supabase.from("inventory_items").update({ name: newName }).eq("id", sub.id);
+        updated++;
+      }
+    }
+  }
+
+  revalidatePath("/admin/inventory");
+  return { success: true, updated };
+}

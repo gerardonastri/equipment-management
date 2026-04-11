@@ -10,7 +10,17 @@ import {
   getInventoryItems,
   uploadInventoryImage,
   removeLossByType,
+  updatePrefixForMacroAndChildren,
 } from "@/app/actions/inventory-actions";
+
+/**
+ * Estrae il prefix tipo "AC-" dalla fine del nome di un item.
+ * Es: "AUDIO (Mini Club) AG-" → "AG-", "Baby SPA AC-" → "AC-"
+ */
+function extractPrefix(name = "") {
+  const match = name.match(/\b([A-Z]{2,4}-(?:\d+)?)\s*$/i);
+  return match ? match[1].toUpperCase() : null;
+}
 
 // Config badge per i tipi di perdita rimovibili
 const LOSS_BADGE_CONFIG = {
@@ -48,18 +58,32 @@ export default function InventoryFormModal({ isOpen, onClose, item, onSuccess })
   // Quale tipo sta caricando la rimozione
   const [removingType, setRemovingType] = useState(null);
 
+  // Prefix tracking per propagazione rinomina codice
+  // Es: nome "AUDIO AG-" → prefix "AG-". Se cambia, chiede se propagare ai figli.
+  const [originalPrefix, setOriginalPrefix] = useState(null);
+  const [showPrefixPropagate, setShowPrefixPropagate] = useState(false);
+  const [prefixPropagating, setPrefixPropagating] = useState(false);
+
   useEffect(() => {
     if (item) {
       setFormData(item);
       setImagePreview(item.image_url || null);
       setLocalHasDanneggiato(!!item._hasDanneggiato);
       setLocalHasRubato(!!item._hasRubato);
+      // Rileva il prefix originale solo per macro
+      if (item.type === "macro") {
+        setOriginalPrefix(extractPrefix(item.name));
+      } else {
+        setOriginalPrefix(null);
+      }
     } else {
       setFormData({ name: "", type: "macro", parent_id: null, materiale_mancante: false });
       setImagePreview(null);
       setLocalHasDanneggiato(false);
       setLocalHasRubato(false);
+      setOriginalPrefix(null);
     }
+    setShowPrefixPropagate(false);
     setImageFile(null);
     setError("");
     loadParents();
@@ -113,6 +137,16 @@ export default function InventoryFormModal({ isOpen, onClose, item, onSuccess })
       let result;
       if (item?.id) {
         result = await updateInventoryItem(item.id, formData);
+
+        // Se la macro ha cambiato prefix E l'utente ha confermato la propagazione
+        if (result?.success && item.type === "macro" && showPrefixPropagate) {
+          const newPrefix = extractPrefix(formData.name);
+          if (originalPrefix && newPrefix && originalPrefix !== newPrefix) {
+            setPrefixPropagating(true);
+            await updatePrefixForMacroAndChildren(item.id, originalPrefix, newPrefix);
+            setPrefixPropagating(false);
+          }
+        }
       } else {
         result = await createInventoryItem(formData);
       }
@@ -224,12 +258,40 @@ export default function InventoryFormModal({ isOpen, onClose, item, onSuccess })
             <input
               type="text"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) => {
+                const newName = e.target.value;
+                setFormData({ ...formData, name: newName });
+                // Mostra opzione propagazione se il prefix è cambiato su una macro
+                if (item?.type === "macro" && originalPrefix) {
+                  const newPrefix = extractPrefix(newName);
+                  setShowPrefixPropagate(!!newPrefix && newPrefix !== originalPrefix);
+                }
+              }}
               className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               required
               disabled={isSubmitting}
             />
           </div>
+
+          {/* Propagazione prefix — mostrata solo per macro quando il codice cambia */}
+          {showPrefixPropagate && item?.type === "macro" && (() => {
+            const newPrefix = extractPrefix(formData.name);
+            return newPrefix && newPrefix !== originalPrefix ? (
+              <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors">
+                <input type="checkbox" defaultChecked
+                  onChange={(e) => setShowPrefixPropagate(e.target.checked)}
+                  className="mt-0.5 rounded border-input" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Rinomina codice <span className="font-mono text-primary">{originalPrefix} → {newPrefix}</span> in tutti i figli
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Categorie e sotto-categorie con <span className="font-mono">{originalPrefix}</span> verranno aggiornate a <span className="font-mono">{newPrefix}</span>
+                  </p>
+                </div>
+              </label>
+            ) : null;
+          })()}
 
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Tipo</label>
@@ -303,7 +365,7 @@ export default function InventoryFormModal({ isOpen, onClose, item, onSuccess })
               Annulla
             </button>
             <button type="submit" className="flex-1 btn-primary" disabled={isSubmitting}>
-              {isSubmitting ? "Salvataggio..." : "Salva"}
+              {prefixPropagating ? "Aggiornando codici..." : isSubmitting ? "Salvataggio..." : "Salva"}
             </button>
           </div>
         </form>
