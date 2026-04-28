@@ -256,9 +256,16 @@ export async function submitCheck(
 
     const partyUpdates = {};
 
-    if (userRole === "animatore" && !currentParty?.animatore_id) {
-      partyUpdates.animatore_id = userId;
-      console.log("[v0] Auto-assigning animatore:", userId);
+    if (userRole === "animatore") {
+      // Legacy: aggiorna animatore_id se vuoto
+      if (!currentParty?.animatore_id) {
+        partyUpdates.animatore_id = userId;
+      }
+      // Multi-animatore: aggiungi a animatori_ids se non già presente
+      const currentAnimatoriIds = currentParty?.animatori_ids || [];
+      if (!currentAnimatoriIds.includes(userId)) {
+        partyUpdates.animatori_ids = [...currentAnimatoriIds, userId];
+      }
     }
 
     if (userRole === "magazziniere" && !currentParty?.magazziniere_id) {
@@ -344,6 +351,92 @@ export async function submitCheck(
     } catch (telegramError) {
       console.error("[v0] Error sending Telegram notification:", telegramError);
     }
+
+    // ── Logica Handoff ──────────────────────────────────────────────────────
+    // Se questa festa ha un handoff attivo e stiamo completando lo scarico furgone (furgone_scaffale),
+    // creiamo automaticamente il check deposito_scaffale per la festa destinazione
+    // sulle macro handoff — così il magazziniere non deve fare il check iniziale.
+    if (checkType === "furgone_scaffale") {
+      const { data: currentPartyFull } = await supabase
+        .from("parties")
+        .select("handoff_to_party_id, handoff_macro_ids")
+        .eq("id", partyId)
+        .single();
+
+      if (currentPartyFull?.handoff_to_party_id && currentPartyFull.handoff_macro_ids?.length > 0) {
+        const destPartyId = currentPartyFull.handoff_to_party_id;
+        console.log("[v0] Handoff attivo: creazione check automatici per festa", destPartyId);
+
+        // Crea deposito_scaffale sintetico per la festa destinazione (se non esiste)
+        const { data: existingDestCheck } = await supabase
+          .from("checks")
+          .select("id")
+          .eq("party_id", destPartyId)
+          .eq("type", "deposito_scaffale")
+          .maybeSingle();
+
+        if (!existingDestCheck) {
+          await supabase.from("checks").insert({
+            party_id:           destPartyId,
+            user_id:            userId,
+            type:               "deposito_scaffale",
+            notes:              `Check automatico — materiale ricevuto in handoff dalla festa sorgente (scaffale animatore). Macro trasferite: ${currentPartyFull.handoff_macro_ids.length}`,
+            materiale_smarrito: false,
+          });
+
+          // Aggiorna stato festa destinazione a caricato_scaffale
+          await supabase
+            .from("parties")
+            .update({ stato: "caricato_scaffale" })
+            .eq("id", destPartyId);
+
+          console.log("[v0] Handoff: check deposito_scaffale creato per festa destinazione", destPartyId);
+        }
+      }
+    }
+
+    // Se stiamo completando lo scarico scaffale (scaffale_deposito) con handoff attivo,
+    // il check scaffale_deposito sulle macro handoff è già gestito dall'animatore —
+    // lo creiamo sinteticamente per non bloccare il flusso del magazziniere.
+    if (checkType === "furgone_scaffale") {
+      const { data: srcParties } = await supabase
+        .from("parties")
+        .select("id, handoff_macro_ids")
+        .eq("handoff_to_party_id", partyId)
+        .neq("stato", "scaricato_scaffale");
+
+      if (srcParties?.length) {
+        for (const srcParty of srcParties) {
+          if (!srcParty.handoff_macro_ids?.length) continue;
+          // La festa sorgente non deve fare scaffale_deposito per le macro in handoff.
+          // Creiamo il check sintetico scaffale_deposito solo se non esiste già.
+          const { data: existingSrc } = await supabase
+            .from("checks")
+            .select("id")
+            .eq("party_id", srcParty.id)
+            .eq("type", "scaffale_deposito")
+            .maybeSingle();
+
+          if (!existingSrc) {
+            await supabase.from("checks").insert({
+              party_id:           srcParty.id,
+              user_id:            userId,
+              type:               "scaffale_deposito",
+              notes:              `Check automatico — materiale in handoff, non rientra in magazzino. Gestito dall'animatore.`,
+              materiale_smarrito: false,
+            });
+
+            await supabase
+              .from("parties")
+              .update({ stato: "scaricato_scaffale" })
+              .eq("id", srcParty.id);
+
+            console.log("[v0] Handoff: check scaffale_deposito sintetico creato per festa sorgente", srcParty.id);
+          }
+        }
+      }
+    }
+    // ── Fine Logica Handoff ──────────────────────────────────────────────────
 
     revalidatePath(`/admin/check/${shelfId}`);
 

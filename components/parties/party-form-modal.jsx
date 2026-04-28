@@ -5,108 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShelfSelector } from "./shelf-selector";
 import {
   Star, Package, ChevronDown, ChevronRight, AlertCircle,
-  ArrowRight, Trash2, PlusCircle,
+  X, UserPlus, Users, ArrowRightLeft, Info,
 } from "lucide-react";
-
-// ─── Mappa stato → check richiesti ────────────────────────────────────────────
-const STATO_TO_CHECKS = {
-  iniziale:           [],
-  caricato_scaffale:  ["Deposito → Scaffale"],
-  caricato_furgone:   ["Deposito → Scaffale", "Scaffale → Furgone"],
-  scaricato_furgone:  ["Deposito → Scaffale", "Scaffale → Furgone", "Furgone → Scaffale"],
-  scaricato_scaffale: ["Deposito → Scaffale", "Scaffale → Furgone", "Furgone → Scaffale", "Scaffale → Deposito"],
-};
-
-const STATO_ORDER = [
-  "iniziale",
-  "caricato_scaffale",
-  "caricato_furgone",
-  "scaricato_furgone",
-  "scaricato_scaffale",
-];
-
-function getStatoIndex(stato) {
-  return STATO_ORDER.indexOf(stato ?? "iniziale");
-}
-
-/**
- * Banner contestuale che avvisa l'admin di cosa succede ai check
- * quando cambia lo stato della festa in modifica.
- */
-function CheckSyncWarning({ originalStato, newStato }) {
-  if (!originalStato || originalStato === newStato) return null;
-
-  const origIdx = getStatoIndex(originalStato);
-  const newIdx  = getStatoIndex(newStato);
-  if (origIdx === newIdx) return null;
-
-  const isAdvance  = newIdx > origIdx;
-  const checks     = STATO_TO_CHECKS[newStato] ?? [];
-
-  if (isAdvance) {
-    const origChecks = STATO_TO_CHECKS[originalStato] ?? [];
-    const toCreate   = checks.filter((c) => !origChecks.includes(c));
-    if (!toCreate.length) return null;
-
-    return (
-      <motion.div
-        initial={{ opacity: 0, height: 0 }}
-        animate={{ opacity: 1, height: "auto" }}
-        exit={{ opacity: 0, height: 0 }}
-        className="overflow-hidden"
-      >
-        <div className="flex gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm">
-          <PlusCircle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-blue-800">
-              Verranno creati {toCreate.length} check automatici
-            </p>
-            <ul className="mt-1 space-y-0.5">
-              {toCreate.map((c) => (
-                <li key={c} className="text-blue-700 flex items-center gap-1.5">
-                  <ArrowRight className="w-3 h-3 shrink-0" />{c}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </motion.div>
-    );
-  }
-
-  // Arretramento
-  const origChecks = STATO_TO_CHECKS[originalStato] ?? [];
-  const toDelete   = origChecks.filter((c) => !checks.includes(c));
-  if (!toDelete.length) return null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: "auto" }}
-      exit={{ opacity: 0, height: 0 }}
-      className="overflow-hidden"
-    >
-      <div className="flex gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
-        <Trash2 className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="font-semibold text-amber-800">
-            Verranno eliminati {toDelete.length} check già completati
-          </p>
-          <ul className="mt-1 space-y-0.5">
-            {toDelete.map((c) => (
-              <li key={c} className="text-amber-700 flex items-center gap-1.5">
-                <ArrowRight className="w-3 h-3 shrink-0" />{c}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1.5 text-amber-600 text-xs">
-            Le segnalazioni (losses) collegate a questi check verranno rimosse.
-          </p>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
 
 export function PartyFormModal({
   isOpen,
@@ -128,25 +28,52 @@ export function PartyFormModal({
   selectedSingleItems,
   onSingleItemToggle,
 }) {
-  const [isSpecial, setIsSpecial] = useState(false);
+  const [isSpecial, setIsSpecial]         = useState(false);
   const [expandedMacro, setExpandedMacro] = useState({});
-  const [expandedCat, setExpandedCat] = useState({});
-  // Stato originale al momento dell'apertura del modal (per calcolare il diff check)
-  const [originalStato, setOriginalStato] = useState(null);
+  const [expandedCat, setExpandedCat]     = useState({});
 
   useEffect(() => {
     if (!isOpen) {
       setIsSpecial(false);
       setExpandedMacro({});
       setExpandedCat({});
-      setOriginalStato(null);
-    } else if (isEdit && party?.stato) {
-      // Memorizza lo stato iniziale solo alla prima apertura in modalità edit
-      setOriginalStato((prev) => prev ?? party.stato);
     }
-  }, [isOpen, isEdit, party?.stato]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // ── Multi-animatore ──────────────────────────────────────────────────────────
+  const animatoriIds     = Array.isArray(party.animatori_ids) ? party.animatori_ids : [];
+  const animatoriList    = users.filter((u) => u.ruolo === "animatore" || u.ruolo === "amministratore");
+  const magazzinieriList = users.filter((u) => u.ruolo === "magazziniere" || u.ruolo === "amministratore");
+
+  const addAnimatore = (userId) => {
+    if (!userId || animatoriIds.includes(userId)) return;
+    onPartyChange({ ...party, animatori_ids: [...animatoriIds, userId] });
+  };
+  const removeAnimatore = (userId) =>
+    onPartyChange({ ...party, animatori_ids: animatoriIds.filter((id) => id !== userId) });
+
+  const selectedAnimatori  = animatoriIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
+  const availableAnimatori = animatoriList.filter((u) => !animatoriIds.includes(u.id));
+
+  // ── Handoff ──────────────────────────────────────────────────────────────────
+  const handoffEnabled  = !!party.handoff_to_party_id;
+  const handoffMacroIds = Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [];
+
+  // Candidate: stessa data, attive, non sé stessa
+  const handoffCandidates = allParties.filter(
+    (p) => p.id !== party.id && p.data === party.data && p.stato !== "scaricato_scaffale"
+  );
+
+  const toggleHandoffMacro = (macroId) => {
+    const next = handoffMacroIds.includes(macroId)
+      ? handoffMacroIds.filter((id) => id !== macroId)
+      : [...handoffMacroIds, macroId];
+    onPartyChange({ ...party, handoff_macro_ids: next });
+  };
+
+  const handoffableMacros = macroCategories.filter((m) => selectedMaterials.includes(m.id));
 
   return (
     <motion.div
@@ -164,6 +91,7 @@ export function PartyFormModal({
         </h3>
 
         <form onSubmit={onSubmit} className="space-y-4">
+
           {/* Nome + Data */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -200,39 +128,66 @@ export function PartyFormModal({
             />
           </div>
 
-          {/* Animatore + Magazziniere */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Animatore</label>
+          {/* ── Animatori (multi) ── */}
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> Animatori</span>
+            </label>
+
+            {/* Chip */}
+            {selectedAnimatori.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {selectedAnimatori.map((u) => (
+                  <span key={u.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">
+                    {u.nome}
+                    <button type="button" onClick={() => removeAnimatore(u.id)} className="hover:text-primary/60 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Dropdown */}
+            <div className="flex gap-2">
               <select
-                value={party.animatore_id || ""}
-                onChange={(e) => onPartyChange({ ...party, animatore_id: e.target.value })}
-                className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                value=""
+                onChange={(e) => { if (e.target.value) { addAnimatore(e.target.value); e.target.value = ""; } }}
+                className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
               >
-                <option value="">Seleziona animatore...</option>
-                {users.filter((u) => u.ruolo === "animatore" || u.ruolo === "amministratore").map((u) => (
+                <option value="">
+                  {availableAnimatori.length === 0
+                    ? "Tutti gli animatori assegnati"
+                    : animatoriIds.length === 0 ? "Aggiungi animatore..." : "Aggiungi un altro animatore..."}
+                </option>
+                {availableAnimatori.map((u) => (
                   <option key={u.id} value={u.id}>{u.nome}</option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Magazziniere</label>
-              <select
-                value={party.magazziniere_id || ""}
-                onChange={(e) => onPartyChange({ ...party, magazziniere_id: e.target.value })}
-                className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Seleziona magazziniere...</option>
-                {users.filter((u) => u.ruolo === "magazziniere" || u.ruolo === "amministratore").map((u) => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
-                ))}
-              </select>
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0">
+                <UserPlus className="w-4 h-4" />
+              </div>
             </div>
           </div>
 
+          {/* Magazziniere */}
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">Magazziniere</label>
+            <select
+              value={party.magazziniere_id || ""}
+              onChange={(e) => onPartyChange({ ...party, magazziniere_id: e.target.value })}
+              className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Seleziona magazziniere...</option>
+              {magazzinieriList.map((u) => (
+                <option key={u.id} value={u.id}>{u.nome}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Stato */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">Stato</label>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">Stato</label>
             <select
               value={party.stato}
               onChange={(e) => onPartyChange({ ...party, stato: e.target.value })}
@@ -244,17 +199,6 @@ export function PartyFormModal({
               <option value="scaricato_furgone">Scaricato dal Furgone</option>
               <option value="scaricato_scaffale">Scaricato dallo Scaffale (completato)</option>
             </select>
-
-            {/* Avviso dinamico sui check */}
-            <AnimatePresence mode="wait">
-              {isEdit && originalStato && party.stato !== originalStato && (
-                <CheckSyncWarning
-                  key={party.stato}
-                  originalStato={originalStato}
-                  newStato={party.stato}
-                />
-              )}
-            </AnimatePresence>
           </div>
 
           {/* Note */}
@@ -269,7 +213,7 @@ export function PartyFormModal({
             />
           </div>
 
-          {/* ── Materiale (Macro-Categorie) ── */}
+          {/* ── Materiale ── */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="block text-sm font-medium text-foreground">Materiale da Assegnare</label>
@@ -277,9 +221,7 @@ export function PartyFormModal({
                 type="button"
                 onClick={() => setIsSpecial((v) => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                  isSpecial
-                    ? "bg-amber-500 text-white border-amber-500"
-                    : "bg-surface border-border text-muted-foreground hover:border-amber-300 hover:text-amber-600"
+                  isSpecial ? "bg-amber-500 text-white border-amber-500" : "bg-surface border-border text-muted-foreground hover:border-amber-300 hover:text-amber-600"
                 }`}
               >
                 <Star className={`w-3.5 h-3.5 ${isSpecial ? "fill-white" : ""}`} />
@@ -296,11 +238,7 @@ export function PartyFormModal({
                     return (
                       <label
                         key={macro.id}
-                        className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
-                          isUsedElsewhere
-                            ? "opacity-50 cursor-not-allowed"
-                            : "cursor-pointer hover:bg-surface"
-                        }`}
+                        className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${isUsedElsewhere ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-surface"}`}
                       >
                         <input
                           type="checkbox"
@@ -311,9 +249,7 @@ export function PartyFormModal({
                         />
                         <span className="text-sm font-medium text-foreground flex-1">{macro.name}</span>
                         {isUsedElsewhere && (
-                          <span className="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded-full font-semibold">
-                            In uso
-                          </span>
+                          <span className="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded-full font-semibold">In uso oggi</span>
                         )}
                       </label>
                     );
@@ -325,27 +261,18 @@ export function PartyFormModal({
             </div>
 
             {selectedMaterials.length > 0 && (
-              <p className="text-xs text-muted-foreground mb-3">
-                {selectedMaterials.length} macro-categorie selezionate
-              </p>
+              <p className="text-xs text-muted-foreground mb-3">{selectedMaterials.length} macro-categorie selezionate</p>
             )}
 
-            {/* ── Sezione Elementi Singoli (Festa Speciale) ── */}
             <AnimatePresence>
               {isSpecial && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                   <div className="border border-amber-200 rounded-xl bg-amber-50/50 p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
                       <span className="text-sm font-semibold text-amber-800">Elementi Singoli Aggiuntivi</span>
                       <span className="text-xs text-amber-600 ml-auto">da macro non assegnate</span>
                     </div>
-
                     {!specialItemHierarchy?.length ? (
                       <div className="text-center py-6 text-amber-700/60">
                         <AlertCircle className="w-6 h-6 mx-auto mb-1 opacity-50" />
@@ -355,78 +282,38 @@ export function PartyFormModal({
                       <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                         {specialItemHierarchy.map((macro) => (
                           <div key={macro.id} className="bg-card rounded-lg border border-amber-200 overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => setExpandedMacro((p) => ({ ...p, [macro.id]: !p[macro.id] }))}
-                              className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-amber-50 transition-colors"
-                            >
+                            <button type="button" onClick={() => setExpandedMacro((p) => ({ ...p, [macro.id]: !p[macro.id] }))} className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-amber-50 transition-colors">
                               <div className="flex items-center gap-2">
                                 <Package className="w-3.5 h-3.5 text-amber-600" />
                                 <span className="text-sm font-medium text-foreground">{macro.name}</span>
                               </div>
-                              {expandedMacro[macro.id]
-                                ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                                : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                              {expandedMacro[macro.id] ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
                             </button>
-
                             <AnimatePresence>
                               {expandedMacro[macro.id] && (
-                                <motion.div
-                                  initial={{ height: 0 }}
-                                  animate={{ height: "auto" }}
-                                  exit={{ height: 0 }}
-                                  className="overflow-hidden border-t border-amber-100 px-3 py-2"
-                                >
+                                <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }} className="overflow-hidden border-t border-amber-100 px-3 py-2">
                                   {macro.categories.map((cat) => (
                                     <div key={cat.id} className="mb-1">
                                       <div className="flex items-center gap-2 py-1">
                                         {cat.items.length > 0 && (
-                                          <button
-                                            type="button"
-                                            onClick={() => setExpandedCat((p) => ({ ...p, [cat.id]: !p[cat.id] }))}
-                                            className="text-muted-foreground hover:text-foreground shrink-0"
-                                          >
-                                            {expandedCat[cat.id]
-                                              ? <ChevronDown className="w-3 h-3" />
-                                              : <ChevronRight className="w-3 h-3" />}
+                                          <button type="button" onClick={() => setExpandedCat((p) => ({ ...p, [cat.id]: !p[cat.id] }))} className="text-muted-foreground hover:text-foreground shrink-0">
+                                            {expandedCat[cat.id] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                           </button>
                                         )}
                                         <label className={`flex items-center gap-2 flex-1 cursor-pointer ${cat.materiale_mancante ? "opacity-50 cursor-not-allowed" : ""}`}>
-                                          <input
-                                            type="checkbox"
-                                            checked={selectedSingleItems?.includes(cat.id) || false}
-                                            onChange={() => !cat.materiale_mancante && onSingleItemToggle?.(cat.id)}
-                                            disabled={cat.materiale_mancante}
-                                            className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
-                                          />
+                                          <input type="checkbox" checked={selectedSingleItems?.includes(cat.id) || false} onChange={() => !cat.materiale_mancante && onSingleItemToggle?.(cat.id)} disabled={cat.materiale_mancante} className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400" />
                                           <span className="text-xs font-medium text-foreground">{cat.name}</span>
-                                          {cat.materiale_mancante && (
-                                            <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>
-                                          )}
+                                          {cat.materiale_mancante && <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>}
                                         </label>
                                       </div>
-
                                       <AnimatePresence>
                                         {expandedCat[cat.id] && cat.items.length > 0 && (
-                                          <motion.div
-                                            initial={{ height: 0 }}
-                                            animate={{ height: "auto" }}
-                                            exit={{ height: 0 }}
-                                            className="overflow-hidden ml-5"
-                                          >
+                                          <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }} className="overflow-hidden ml-5">
                                             {cat.items.map((sub) => (
                                               <label key={sub.id} className={`flex items-center gap-2 py-0.5 cursor-pointer ${sub.materiale_mancante ? "opacity-50 cursor-not-allowed" : ""}`}>
-                                                <input
-                                                  type="checkbox"
-                                                  checked={selectedSingleItems?.includes(sub.id) || false}
-                                                  onChange={() => !sub.materiale_mancante && onSingleItemToggle?.(sub.id)}
-                                                  disabled={sub.materiale_mancante}
-                                                  className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
-                                                />
+                                                <input type="checkbox" checked={selectedSingleItems?.includes(sub.id) || false} onChange={() => !sub.materiale_mancante && onSingleItemToggle?.(sub.id)} disabled={sub.materiale_mancante} className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400" />
                                                 <span className="text-xs text-muted-foreground">{sub.name}</span>
-                                                {sub.materiale_mancante && (
-                                                  <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>
-                                                )}
+                                                {sub.materiale_mancante && <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">mancante</span>}
                                               </label>
                                             ))}
                                           </motion.div>
@@ -441,11 +328,114 @@ export function PartyFormModal({
                         ))}
                       </div>
                     )}
-
                     {(selectedSingleItems?.length || 0) > 0 && (
                       <p className="text-xs text-amber-700 font-medium mt-2">
                         {selectedSingleItems.length} element{selectedSingleItems.length === 1 ? "o" : "i"} singol{selectedSingleItems.length === 1 ? "o" : "i"} selezionat{selectedSingleItems.length === 1 ? "o" : "i"}
                       </p>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* ── PASSAGGIO MATERIALE (Handoff) ── */}
+          <div className="border border-border rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => onPartyChange({
+                ...party,
+                handoff_to_party_id: handoffEnabled ? null : "",
+                handoff_macro_ids:   handoffEnabled ? [] : handoffMacroIds,
+              })}
+              className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${handoffEnabled ? "bg-violet-50 border-b border-violet-100" : "bg-surface hover:bg-muted/40"}`}
+            >
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${handoffEnabled ? "bg-violet-500 text-white" : "bg-muted text-muted-foreground"}`}>
+                <ArrowRightLeft className="w-4 h-4" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className={`text-sm font-semibold ${handoffEnabled ? "text-violet-800" : "text-foreground"}`}>
+                  Passaggio Materiale a un'altra Festa
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Il magazziniere salta il controllo finale/iniziale — l'animatore gestisce il passaggio.
+                </p>
+              </div>
+              <div className={`w-11 h-6 rounded-full transition-colors shrink-0 relative ${handoffEnabled ? "bg-violet-500" : "bg-gray-200"}`}>
+                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${handoffEnabled ? "translate-x-6" : "translate-x-1"}`} />
+              </div>
+            </button>
+
+            <AnimatePresence>
+              {handoffEnabled && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <div className="p-4 space-y-4 bg-violet-50/30">
+
+                    {/* Festa destinazione */}
+                    <div>
+                      <label className="block text-xs font-semibold text-violet-800 mb-1.5 uppercase tracking-wide">
+                        Festa destinazione *
+                      </label>
+                      {handoffCandidates.length === 0 ? (
+                        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                          <p className="text-xs text-amber-700">
+                            Nessuna altra festa attiva trovata per questa data. Crea prima l'altra festa, poi torna qui.
+                          </p>
+                        </div>
+                      ) : (
+                        <select
+                          value={party.handoff_to_party_id || ""}
+                          onChange={(e) => onPartyChange({ ...party, handoff_to_party_id: e.target.value || null })}
+                          className="w-full px-3 py-2 border border-violet-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400 text-sm bg-white"
+                        >
+                          <option value="">Seleziona la festa che riceve il materiale...</option>
+                          {handoffCandidates.map((p) => (
+                            <option key={p.id} value={p.id}>{p.nome} — {p.luogo}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Macro da passare */}
+                    {handoffableMacros.length > 0 ? (
+                      <div>
+                        <label className="block text-xs font-semibold text-violet-800 mb-1 uppercase tracking-wide">
+                          Quale materiale passa alla festa successiva?
+                        </label>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Il materiale NON selezionato torna normalmente al magazzino con il check standard.
+                        </p>
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                          {handoffableMacros.map((macro) => (
+                            <label key={macro.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white border border-violet-100 cursor-pointer hover:border-violet-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={handoffMacroIds.includes(macro.id)}
+                                onChange={() => toggleHandoffMacro(macro.id)}
+                                className="w-4 h-4 text-violet-500 border-violet-300 rounded focus:ring-violet-400"
+                              />
+                              <Package className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                              <span className="text-sm font-medium text-foreground flex-1">{macro.name}</span>
+                              {handoffMacroIds.includes(macro.id) && (
+                                <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-semibold">✈ Passa</span>
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                        {handoffMacroIds.length > 0 && (
+                          <p className="text-xs text-violet-600 font-medium mt-2">
+                            {handoffMacroIds.length} macro{handoffMacroIds.length > 1 ? " passano" : " passa"} direttamente — scaffale B: {allParties.find((p) => p.id === party.handoff_to_party_id)?.shelves || "da definire"}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-700">
+                          Assegna prima il materiale alla festa per scegliere cosa passa alla festa successiva.
+                        </p>
+                      </div>
                     )}
                   </div>
                 </motion.div>
@@ -459,6 +449,7 @@ export function PartyFormModal({
             <ShelfSelector
               allParties={allParties}
               currentPartyId={party.id}
+              currentPartyDate={party.data}
               selectedShelves={party.shelves}
               onAddShelf={onAddShelf}
               onRemoveShelf={onRemoveShelf}
@@ -467,21 +458,13 @@ export function PartyFormModal({
 
           {/* Azioni */}
           <div className="flex space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors"
-            >
+            <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors">
               Annulla
             </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="flex-1 btn-primary disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isSubmitting ? (
-                <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{isEdit ? "Salvataggio..." : "Creazione..."}</>
-              ) : isEdit ? "Salva Modifiche" : "Crea Festa"}
+            <button type="submit" disabled={isSubmitting} className="flex-1 btn-primary disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              {isSubmitting
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{isEdit ? "Salvataggio..." : "Creazione..."}</>
+                : isEdit ? "Salva Modifiche" : "Crea Festa"}
             </button>
           </div>
         </form>

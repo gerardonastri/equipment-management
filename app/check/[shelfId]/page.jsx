@@ -648,19 +648,25 @@ export default function CheckPage({ params }) {
     );
   }
 
-  if (currentUser && partyData?.animatore_id) {
+  // Controllo accesso animatore: supporta multi-animatore (animatori_ids) e legacy (animatore_id)
+  if (currentUser && partyData) {
     const isAnimator = currentUser.ruolo === "animatore";
-    const isAssignedAnimator = partyData.animatore_id === currentUser.id;
-    if (isAnimator && !isAssignedAnimator) {
-      return (
-        <div className="min-h-screen bg-surface flex items-center justify-center">
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
-            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
-            <p className="text-muted-foreground mb-6">Solo l'animatore assegnato può accedere a questo check.</p>
-          </motion.div>
-        </div>
-      );
+    if (isAnimator) {
+      const animatoriIds    = partyData.animatori_ids || [];
+      const legacyAnimatore = partyData.animatore_id;
+      const hasAssignment   = animatoriIds.length > 0 || !!legacyAnimatore;
+      const isAssigned      = animatoriIds.includes(currentUser.id) || legacyAnimatore === currentUser.id;
+      if (hasAssignment && !isAssigned) {
+        return (
+          <div className="min-h-screen bg-surface flex items-center justify-center">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
+              <p className="text-muted-foreground mb-6">Non sei tra gli animatori assegnati a questa festa.</p>
+            </motion.div>
+          </div>
+        );
+      }
     }
   }
 
@@ -838,6 +844,34 @@ export default function CheckPage({ params }) {
                 <div className="flex items-center space-x-2"><User className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Animatore:</span><span className="font-medium text-foreground">{partyData.animatore?.nome || "Non assegnato"}</span></div>
               </div>
             </div>
+            {/* ── BANNER HANDOFF ── */}
+            {(() => {
+              const handoffToPartyId = partyData?.handoff_to_party_id;
+              const handoffMacroIds  = partyData?.handoff_macro_ids || [];
+              // Questa festa è sorgente di un handoff
+              if (handoffToPartyId && handoffMacroIds.length > 0) {
+                return (
+                  <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 mb-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-violet-500 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
+                        <span className="text-white text-sm font-bold">↗</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-violet-800">Passaggio Materiale Attivo</p>
+                        <p className="text-xs text-violet-700 mt-0.5">
+                          Al termine dello scarico dal furgone ({handoffMacroIds.length} macro), posiziona le macro indicate sullo scaffale della festa che segue — non portarle al magazzino.
+                        </p>
+                        <p className="text-xs text-violet-600 font-semibold mt-1.5">
+                          Il magazziniere NON deve fare i check finali/iniziali su questo materiale.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             <div className="space-y-4">
               <h2 className="text-xl font-semibold text-foreground">Seleziona il tipo di check</h2>
               <div className="grid gap-4">
@@ -934,7 +968,14 @@ export default function CheckPage({ params }) {
             {/* PROGRESS BAR */}
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-foreground">Progresso Check - Scaffale {shelfId}</h2>
+                <div>
+                  <h2 className="text-xl font-semibold text-foreground">Progresso Check - Scaffale {shelfId}</h2>
+                  {checkType === "furgone_scaffale" && partyData?.handoff_to_party_id && (partyData?.handoff_macro_ids?.length > 0) && (
+                    <p className="text-xs text-violet-600 font-semibold mt-0.5">
+                      ↗ {partyData.handoff_macro_ids.length} macro vanno allo scaffale della festa successiva — non al magazzino.
+                    </p>
+                  )}
+                </div>
                 <span className="text-sm text-muted-foreground">{getCheckedCount()}/{getTotalItems()} completati</span>
               </div>
               <div className="w-full bg-surface rounded-full h-3">

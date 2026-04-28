@@ -122,7 +122,7 @@ export default function PartiesPage() {
   const [partyMaterials, setPartyMaterials] = useState([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
   const [newParty, setNewParty] = useState({
-    nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [],
+    nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [],
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [selectedSingleItems, setSelectedSingleItems] = useState([]);
@@ -268,7 +268,7 @@ export default function PartiesPage() {
       await createParty({ ...newParty, selectedMaterials, selectedSingleItems });
       // Chiudi subito il form per feedback immediato
       setShowFormModal(false);
-      setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [] });
+      setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [] });
       setSelectedMaterials([]);
       setSelectedSingleItems([]);
       toast("Festa creata con successo!", "success");
@@ -285,7 +285,8 @@ export default function PartiesPage() {
   const handleEditParty = async (party) => {
     setEditParty({
       ...party,
-      shelves: party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => s.trim()) : [],
+      shelves:      party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => s.trim()) : [],
+      animatori_ids: party.animatori_ids || [],
     });
     // Carica in parallelo: macro usate (per disabilitare) + macro già assegnate (per pre-selezionare)
     const [usedIds, assignedMacroIds] = await Promise.all([
@@ -302,7 +303,7 @@ export default function PartiesPage() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await updateParty(editParty.id, { ...editParty, selectedMaterials });
+      await updateParty(editParty.id, { ...editParty, selectedMaterials, animatori_ids: editParty.animatori_ids || [] });
       setShowFormModal(false);
       setEditParty(null);
       setSelectedMaterials([]);
@@ -399,7 +400,7 @@ export default function PartiesPage() {
             <button
               onClick={() => {
                 setEditParty(null);
-                setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [] });
+                setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [] });
                 setSelectedMaterials([]);
                 setSelectedSingleItems([]);
                 setShowFormModal(true);
@@ -449,6 +450,7 @@ export default function PartiesPage() {
               <span className="text-sm font-medium text-muted-foreground pt-2">Filtra per stato:</span>
               {[
                 { value: "iniziale", label: "Iniziale" },
+                { value: "caricato_scaffale", label: "Caricato sullo Scaffale" },
                 { value: "caricato_furgone", label: "Caricato nel Furgone" },
                 { value: "scaricato_furgone", label: "Scaricato dal Furgone" },
                 { value: "scaricato_scaffale", label: "Ritornato al deposito" },

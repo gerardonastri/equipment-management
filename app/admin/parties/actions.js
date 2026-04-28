@@ -200,7 +200,9 @@ async function syncChecksForParty(supabase, partyId, newStato, partyRow) {
   const toCreate = requiredChecks.filter((type) => !existingTypes.has(type));
 
   if (toCreate.length > 0) {
-    const animatoreId    = partyRow?.animatore_id    || null;
+    const animatoreId    = partyRow?.animatore_id
+      || (partyRow?.animatori_ids?.length ? partyRow.animatori_ids[0] : null)
+      || null;
     const magazziniereId = partyRow?.magazziniere_id || null;
 
     // Fallback: primo amministratore disponibile
@@ -515,18 +517,73 @@ export async function getPartyMacroIds(partyId) {
   return (data || []).map((d) => d.inventory_id);
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HANDOFF — Passaggio materiale tra feste
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Restituisce le info handoff per una festa:
+ * - se questa festa è SORGENTE (handoff_to_party_id settato)
+ * - se questa festa è DESTINAZIONE (un'altra festa la punta)
+ * Include i dettagli della festa collegata e le macro_ids coinvolte.
+ */
+export async function getPartyHandoffInfo(partyId) {
+  const supabase = await createServerClient();
+
+  // Questa festa è sorgente?
+  const { data: party } = await supabase
+    .from("parties")
+    .select("handoff_to_party_id, handoff_macro_ids, shelves")
+    .eq("id", partyId)
+    .single();
+
+  const result = { asSource: null, asDestination: null };
+
+  if (party?.handoff_to_party_id) {
+    const { data: destParty } = await supabase
+      .from("parties")
+      .select("id, nome, luogo, shelves, stato")
+      .eq("id", party.handoff_to_party_id)
+      .single();
+    result.asSource = {
+      destinationParty: destParty,
+      handoffMacroIds:  party.handoff_macro_ids || [],
+    };
+  }
+
+  // Questa festa è destinazione di un handoff?
+  const { data: sourceParties } = await supabase
+    .from("parties")
+    .select("id, nome, luogo, shelves, stato, handoff_macro_ids")
+    .eq("handoff_to_party_id", partyId)
+    .neq("stato", "scaricato_scaffale");
+
+  if (sourceParties?.length) {
+    result.asDestination = sourceParties.map((sp) => ({
+      sourceParty:     { id: sp.id, nome: sp.nome, luogo: sp.luogo, shelves: sp.shelves, stato: sp.stato },
+      handoffMacroIds: sp.handoff_macro_ids || [],
+    }));
+  }
+
+  return result;
+}
+
 export async function createParty(formData) {
   const supabase = await createServerClient();
 
   const partyData = {
-    nome:            formData.nome,
-    data:            formData.data,
-    luogo:           formData.luogo,
-    animatore_id:    formData.animatore_id    || null,
-    magazziniere_id: formData.magazziniere_id || null,
-    stato:           formData.stato,
-    note:            formData.note,
-    shelves:         formData.shelves.join(","),
+    nome:               formData.nome,
+    data:               formData.data,
+    luogo:              formData.luogo,
+    animatore_id:       formData.animatore_id       || null,
+    magazziniere_id:    formData.magazziniere_id    || null,
+    animatori_ids:      formData.animatori_ids      || [],
+    handoff_to_party_id: formData.handoff_to_party_id || null,
+    handoff_macro_ids:  formData.handoff_macro_ids  || [],
+    stato:              formData.stato,
+    note:               formData.note,
+    shelves:            formData.shelves.join(","),
   };
 
   const { data, error } = await supabase.from("parties").insert([partyData]).select();
@@ -558,19 +615,22 @@ export async function updateParty(partyId, formData) {
   // Legge lo stato precedente prima di modificare
   const { data: prevParty } = await supabase
     .from("parties")
-    .select("stato, animatore_id, magazziniere_id")
+    .select("stato, animatore_id, magazziniere_id, animatori_ids, handoff_to_party_id, handoff_macro_ids")
     .eq("id", partyId)
     .single();
 
   const partyData = {
-    nome:            formData.nome,
-    data:            formData.data,
-    luogo:           formData.luogo,
-    animatore_id:    formData.animatore_id    || null,
-    magazziniere_id: formData.magazziniere_id || null,
-    stato:           formData.stato,
-    note:            formData.note,
-    shelves:         formData.shelves.join(","),
+    nome:               formData.nome,
+    data:               formData.data,
+    luogo:              formData.luogo,
+    animatore_id:       formData.animatore_id       || null,
+    magazziniere_id:    formData.magazziniere_id    || null,
+    animatori_ids:      formData.animatori_ids      || [],
+    handoff_to_party_id: formData.handoff_to_party_id || null,
+    handoff_macro_ids:  formData.handoff_macro_ids  || [],
+    stato:              formData.stato,
+    note:               formData.note,
+    shelves:            formData.shelves.join(","),
   };
 
   const { data, error } = await supabase.from("parties").update(partyData).eq("id", partyId).select();
@@ -609,6 +669,7 @@ export async function updateParty(partyId, formData) {
     await syncChecksForParty(supabase, partyId, newStato, {
       animatore_id:    formData.animatore_id    || prevParty?.animatore_id    || null,
       magazziniere_id: formData.magazziniere_id || prevParty?.magazziniere_id || null,
+      animatori_ids:   formData.animatori_ids   || prevParty?.animatori_ids   || [],
     });
   }
 

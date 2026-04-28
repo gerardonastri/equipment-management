@@ -4,24 +4,33 @@ import { useState } from "react";
 
 // 36 scaffali numerici (1-36) + 12 scaffali con lettera (A-L)
 const NUMERIC_SHELVES = Array.from({ length: 36 }, (_, i) => String(i + 1));
-const LETTER_SHELVES = Array.from({ length: 12 }, (_, i) =>
-  String.fromCharCode(65 + i) // A, B, C, ..., L
-);
+const LETTER_SHELVES  = Array.from({ length: 12 }, (_, i) => String.fromCharCode(65 + i));
 const ALL_SHELVES = [...NUMERIC_SHELVES, ...LETTER_SHELVES]; // 48 totali
 
 export function ShelfSelector({
   allParties,
   currentPartyId,
+  currentPartyDate, // "YYYY-MM-DD" — data della festa che stiamo editando/creando
   selectedShelves,
   onAddShelf,
   onRemoveShelf,
 }) {
   const [shelfInput, setShelfInput] = useState("");
 
-  // Uno scaffale è "occupato" solo se la festa NON è scaricato_scaffale
+  // Uno scaffale è "occupato" solo se:
+  //  1. appartiene a una festa diversa da quella corrente
+  //  2. quella festa è ancora attiva (stato != scaricato_scaffale)
+  //  3. quella festa è nello STESSO giorno della festa corrente
+  // Feste di giorni diversi non bloccano lo scaffale.
   const usedShelves = new Set();
   allParties.forEach((party) => {
-    if (party.id !== currentPartyId && party.stato !== "scaricato_scaffale" && party.shelves) {
+    if (
+      party.id !== currentPartyId &&
+      party.stato !== "scaricato_scaffale" &&
+      party.shelves &&
+      // Conflitto solo se stesso giorno (o se non abbiamo la data corrente, blocca per sicurezza)
+      (!currentPartyDate || party.data === currentPartyDate)
+    ) {
       party.shelves.split(",").forEach((s) => {
         const val = s.trim();
         if (val) usedShelves.add(val);
@@ -94,8 +103,9 @@ export function ShelfSelector({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Scaffali disponibili: {availableShelves.length}/48 — numerici 1–36, lettere A–L
-        (gli scaffali delle feste completate sono automaticamente liberati)
+        Scaffali disponibili: {availableShelves.length}/48 — numerici 1–36, lettere A–L.
+        Gli scaffali occupati da feste <strong>dello stesso giorno</strong> non sono selezionabili.
+        Feste di altri giorni non bloccano lo scaffale.
       </p>
     </div>
   );
