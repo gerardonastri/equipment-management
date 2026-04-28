@@ -24,6 +24,8 @@ import {
   ChevronUp,
   X,
   TriangleAlert,
+  Download,
+  Layers,
 } from "lucide-react";
 import useSWR from "swr";
 import {
@@ -41,7 +43,7 @@ const fetcher = async (shelfId) => {
   return result;
 };
 
-// Fasi in cui è permesso scansionare la categoria per spuntare tutti i sotto-elementi
+// Fasi in cui \u00e8 permesso scansionare la categoria per spuntare tutti i sotto-elementi
 const FASI_CATEGORIA_CONSENTITA = ["scaffale_furgone", "furgone_scaffale"];
 
 // Tipi di perdita disponibili
@@ -56,9 +58,9 @@ const DAMAGE_TYPE_CONFIG = {
   rubato:      { label: "Rubato",      badge: "bg-purple-100 text-purple-700 border-purple-200" },
 };
 
-// ─────────────────────────────────────────────
-// Modal Danno/Rubato — si apre su un singolo item
-// ─────────────────────────────────────────────
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Modal Danno/Rubato \u2014 si apre su un singolo item
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function DamageModal({ item, partyId, userId, onClose, onConfirmed }) {
   const [tipo, setTipo] = useState("danneggiato");
   const [valoreStimato, setValoreStimato] = useState("");
@@ -161,7 +163,7 @@ function DamageModal({ item, partyId, userId, onClose, onConfirmed }) {
           {/* Valore stimato */}
           <div>
             <p className="text-xs font-semibold text-foreground mb-1 uppercase tracking-wide">
-              Valore stimato (€) — opzionale
+              Valore stimato (\u20ac) \u2014 opzionale
             </p>
             <input
               type="number"
@@ -177,7 +179,7 @@ function DamageModal({ item, partyId, userId, onClose, onConfirmed }) {
           {/* Note */}
           <div>
             <p className="text-xs font-semibold text-foreground mb-1 uppercase tracking-wide">
-              Note — opzionale
+              Note \u2014 opzionale
             </p>
             <textarea
               rows={2}
@@ -215,9 +217,9 @@ function DamageModal({ item, partyId, userId, onClose, onConfirmed }) {
   );
 }
 
-// ─────────────────────────────────────────────
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 // PAGINA PRINCIPALE
-// ─────────────────────────────────────────────
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export default function CheckPage({ params }) {
   const resolvedParams = use(params);
   const shelfId = resolvedParams.shelfId;
@@ -239,7 +241,7 @@ export default function CheckPage({ params }) {
   // --- MODAL DANNO/RUBATO ---
   // { item, categoryId, macroId } oppure null
   const [damageModal, setDamageModal] = useState(null);
-  // Elementi già segnalati durante questa sessione: { [itemId]: tipo }
+  // Elementi gi\u00e0 segnalati durante questa sessione: { [itemId]: tipo }
   // Vengono aggiunti quando si conferma dal modal
   const [sessionReportedItems, setSessionReportedItems] = useState({});
 
@@ -268,10 +270,11 @@ export default function CheckPage({ params }) {
   const existingChecks = data?.checks || [];
   const materialData = data?.materialHierarchy || [];
   const partyCompleted = data?.partyCompleted || false;
-  // Perdite già registrate in DB per questa festa (caricate all'avvio)
+  const allPartyShelves = data?.allPartyShelves || [];
+  // Perdite gi\u00e0 registrate in DB per questa festa (caricate all'avvio)
   const existingLosses = data?.existingLosses || [];
 
-  // Set di inventory_id già segnalati (da DB + da sessione corrente)
+  // Set di inventory_id gi\u00e0 segnalati (da DB + da sessione corrente)
   const reportedItemIds = new Set([
     ...existingLosses.map((l) => l.inventory_id),
     ...Object.keys(sessionReportedItems),
@@ -306,7 +309,7 @@ export default function CheckPage({ params }) {
           found = true;
           foundName = matchingItem.name;
           if (matchingItem.materiale_mancante || reportedItemIds.has(matchingItem.id)) {
-            alert(`⚠️ ATTENZIONE: ${foundName} è segnalato come non disponibile nel sistema!`);
+            alert(`\u26a0\ufe0f ATTENZIONE: ${foundName} \u00e8 segnalato come non disponibile nel sistema!`);
             return;
           }
           const itemKey = `${macro.id}-${category.id}-${matchingItem.id}`;
@@ -324,12 +327,13 @@ export default function CheckPage({ params }) {
           found = true;
           foundName = category.name;
           if (category.materiale_mancante || reportedItemIds.has(category.id)) {
-            alert(`⚠️ ATTENZIONE: ${foundName} è segnalato come non disponibile nel sistema!`);
+            alert(`\u26a0\ufe0f ATTENZIONE: ${foundName} \u00e8 segnalato come non disponibile nel sistema!`);
             return;
           }
           const hasItems = category.items && category.items.length > 0;
           if (hasItems && !categoriaConsentita) {
-            alert(`⛔ In questa fase devi scansionare ogni elemento singolarmente.\nScannerizza i singoli oggetti della categoria "${category.name}".`);
+            alert(`\u26d4 In questa fase devi scansionare ogni elemento singolarmente.\
+Scannerizza i singoli oggetti della categoria "${category.name}".`);
             return;
           }
           if (typeof navigator !== "undefined" && navigator.vibrate) {
@@ -470,9 +474,9 @@ export default function CheckPage({ params }) {
   };
 
   const handleDamageConfirmed = (itemId, tipo) => {
-    // Aggiunge alla mappa locale così l'elemento diventa subito disabilitato
+    // Aggiunge alla mappa locale cos\u00ec l'elemento diventa subito disabilitato
     setSessionReportedItems((prev) => ({ ...prev, [itemId]: tipo }));
-    // Rimuove dai checked se era già stato checkato
+    // Rimuove dai checked se era gi\u00e0 stato checkato
     setCheckedItems((prev) => {
       const updated = { ...prev };
       Object.keys(updated).forEach((key) => {
@@ -597,6 +601,76 @@ export default function CheckPage({ params }) {
     return eligible.every((item) => checkedItems[`${macro.id}-${category.id}-${item.id}`]);
   };
 
+  // --- DOWNLOAD LISTA MATERIALE ---
+  const handleDownloadList = () => {
+    if (!partyData || !materialData) return;
+
+    const dateStr = partyData.data
+      ? new Date(partyData.data + "T00:00:00").toLocaleDateString("it-IT")
+      : "";
+
+    let html = `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Lista Materiale - ${partyData.nome}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .meta { font-size: 13px; color: #555; margin-bottom: 20px; }
+    .macro { margin-bottom: 20px; }
+    .macro-title { font-size: 15px; font-weight: bold; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px; }
+    .cat { margin: 8px 0 4px 12px; font-size: 13px; font-weight: 600; color: #374151; }
+    .item { display: flex; align-items: center; gap: 8px; margin: 3px 0 3px 24px; font-size: 13px; }
+    .check { width: 14px; height: 14px; border: 1.5px solid #9ca3af; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+    .missing { color: #ef4444; text-decoration: line-through; }
+    .shelf-badge { background: #ede9fe; color: #7c3aed; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 99px; }
+    @media print { body { padding: 10px; } }
+  </style>
+</head>
+<body>
+  <h1>${partyData.nome}</h1>
+  <div class="meta">
+    ${dateStr} — ${partyData.luogo}
+    ${allPartyShelves.length > 0 ? ' &nbsp;|&nbsp; Scaffali: ' + allPartyShelves.map(s => '<span class="shelf-badge">#' + s + '</span>').join(' ') : ''}
+  </div>`;
+
+    for (const macro of materialData) {
+      html += `
+  <div class="macro">
+    <div class="macro-title">${macro.name}</div>`;
+      for (const cat of macro.categories || []) {
+        html += `
+    <div class="cat">${cat.name}</div>`;
+        if (!cat.items || cat.items.length === 0) {
+          const cls = cat.materiale_mancante ? ' class="item missing"' : ' class="item"';
+          html += `
+    <div${cls}><span class="check"></span>${cat.name}${cat.materiale_mancante ? " — MANCANTE" : ""}</div>`;
+        } else {
+          for (const item of cat.items) {
+            const cls = item.materiale_mancante ? ' class="item missing"' : ' class="item"';
+            html += `
+      <div${cls}><span class="check"></span>${item.name}${item.materiale_mancante ? " — MANCANTE" : ""}</div>`;
+          }
+        }
+      }
+      html += `
+  </div>`;
+    }
+
+    html += `
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lista-materiale-${partyData.nome.replace(/\s+/g, "-").toLowerCase()}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Helper: ottiene info segnalazione per un item (da DB o da sessione)
   const getReportInfo = (itemId) => {
     const fromSession = sessionReportedItems[itemId];
@@ -606,9 +680,9 @@ export default function CheckPage({ params }) {
     return null;
   };
 
-  // ─────────────────────────────────────────────
+  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   // RENDER CONDIZIONALI
-  // ─────────────────────────────────────────────
+  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   if (!shelfId || isLoadingParty) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -628,7 +702,7 @@ export default function CheckPage({ params }) {
             <Package className="w-8 h-8 text-muted-foreground" />
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale {shelfId}</h1>
-          <p className="text-muted-foreground mb-6">Non è stata trovata nessuna festa assegnata a questo scaffale. Contatta l'amministratore.</p>
+          <p className="text-muted-foreground mb-6">Non \u00e8 stata trovata nessuna festa assegnata a questo scaffale. Contatta l'amministratore.</p>
         </motion.div>
       </div>
     );
@@ -642,31 +716,29 @@ export default function CheckPage({ params }) {
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale Libero</h1>
-          <p className="text-muted-foreground">Tutti i check per la festa <span className="font-semibold text-foreground">"{partyData?.nome}"</span> sono stati completati. Lo scaffale <span className="font-semibold">{shelfId}</span> è ora disponibile.</p>
+          <p className="text-muted-foreground">Tutti i check per la festa <span className="font-semibold text-foreground">"{partyData?.nome}"</span> sono stati completati. Lo scaffale <span className="font-semibold">{shelfId}</span> \u00e8 ora disponibile.</p>
         </motion.div>
       </div>
     );
   }
 
-  // Controllo accesso animatore: supporta multi-animatore (animatori_ids) e legacy (animatore_id)
-  if (currentUser && partyData) {
+  if (currentUser && partyData?.animatore_id) {
     const isAnimator = currentUser.ruolo === "animatore";
-    if (isAnimator) {
-      const animatoriIds    = partyData.animatori_ids || [];
-      const legacyAnimatore = partyData.animatore_id;
-      const hasAssignment   = animatoriIds.length > 0 || !!legacyAnimatore;
-      const isAssigned      = animatoriIds.includes(currentUser.id) || legacyAnimatore === currentUser.id;
-      if (hasAssignment && !isAssigned) {
-        return (
-          <div className="min-h-screen bg-surface flex items-center justify-center">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
-              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
-              <p className="text-muted-foreground mb-6">Non sei tra gli animatori assegnati a questa festa.</p>
-            </motion.div>
-          </div>
-        );
-      }
+    // Supporto multi-animatore: controlla sia animatore_id sia animatori_ids
+    const animatoriIds = partyData.animatori_ids || [];
+    const isAssignedAnimator =
+      partyData.animatore_id === currentUser.id ||
+      animatoriIds.includes(currentUser.id);
+    if (isAnimator && !isAssignedAnimator) {
+      return (
+        <div className="min-h-screen bg-surface flex items-center justify-center">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
+            <p className="text-muted-foreground mb-6">Non sei tra gli animatori assegnati a questa festa.</p>
+          </motion.div>
+        </div>
+      );
     }
   }
 
@@ -707,9 +779,9 @@ export default function CheckPage({ params }) {
     );
   }
 
-  // ─────────────────────────────────────────────
+  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   // FASE SEGNALAZIONE PERDITE (post-check)
-  // ─────────────────────────────────────────────
+  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   if (lossPhase === "reporting") {
     const groupedByMacro = {};
     checkedItemsSnapshot.forEach((item) => {
@@ -728,7 +800,7 @@ export default function CheckPage({ params }) {
                 </div>
                 <div>
                   <h1 className="text-xl font-bold text-foreground">Segnala Problemi</h1>
-                  <p className="text-sm text-muted-foreground">Check completato ✓ — Spunta gli elementi con problemi e specifica il tipo.</p>
+                  <p className="text-sm text-muted-foreground">Check completato \u2713 \u2014 Spunta gli elementi con problemi e specifica il tipo.</p>
                 </div>
               </div>
               {damagedCount > 0 && (
@@ -781,11 +853,11 @@ export default function CheckPage({ params }) {
                                     </div>
                                   </div>
                                   <div>
-                                    <p className="text-xs font-medium text-foreground mb-1">Valore stimato (€) — opzionale</p>
+                                    <p className="text-xs font-medium text-foreground mb-1">Valore stimato (\u20ac) \u2014 opzionale</p>
                                     <input type="number" min="0" step="0.01" placeholder="es. 15.00" value={damageState.valoreStimato || ""} onChange={(e) => updateItemDamageField(item.inventoryId, "valoreStimato", e.target.value)} className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm" />
                                   </div>
                                   <div>
-                                    <p className="text-xs font-medium text-foreground mb-1">Note — opzionale</p>
+                                    <p className="text-xs font-medium text-foreground mb-1">Note \u2014 opzionale</p>
                                     <textarea rows={2} placeholder="Descrivi il problema..." value={damageState.note || ""} onChange={(e) => updateItemDamageField(item.inventoryId, "note", e.target.value)} className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm resize-none" />
                                   </div>
                                 </div>
@@ -802,7 +874,7 @@ export default function CheckPage({ params }) {
 
             <div className="sticky bottom-4">
               <button onClick={handleSubmitLosses} disabled={isSubmittingLosses} className="w-full btn-primary py-4 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-xl">
-                {isSubmittingLosses ? (<><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Salvataggio...</span></>) : (<><Send className="w-5 h-5" /><span>{damagedCount > 0 ? `Invia ${damagedCount} segnalazion${damagedCount === 1 ? "e" : "i"}` : "Nessun problema — Conferma"}</span></>)}
+                {isSubmittingLosses ? (<><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Salvataggio...</span></>) : (<><Send className="w-5 h-5" /><span>{damagedCount > 0 ? `Invia ${damagedCount} segnalazion${damagedCount === 1 ? "e" : "i"}` : "Nessun problema \u2014 Conferma"}</span></>)}
               </button>
             </div>
           </motion.div>
@@ -836,42 +908,44 @@ export default function CheckPage({ params }) {
         <div className="containerMod py-8">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-2xl mx-auto">
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
-              <h1 className="text-2xl font-bold text-foreground mb-4">Scaffale {shelfId}</h1>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <h1 className="text-2xl font-bold text-foreground">Scaffale {shelfId}</h1>
+                <button
+                  onClick={handleDownloadList}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 text-sm font-medium transition-all shrink-0"
+                  title="Scarica lista materiale (offline)"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Scarica lista</span>
+                </button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center space-x-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Festa:</span><span className="font-medium text-foreground">{partyData.nome}</span></div>
                 <div className="flex items-center space-x-2"><Clock className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Data:</span><span className="font-medium text-foreground">{new Date(partyData.data).toLocaleDateString("it-IT")}</span></div>
                 <div className="flex items-center space-x-2"><MapPin className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Luogo:</span><span className="font-medium text-foreground">{partyData.luogo}</span></div>
                 <div className="flex items-center space-x-2"><User className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Animatore:</span><span className="font-medium text-foreground">{partyData.animatore?.nome || "Non assegnato"}</span></div>
               </div>
-            </div>
-            {/* ── BANNER HANDOFF ── */}
-            {(() => {
-              const handoffToPartyId = partyData?.handoff_to_party_id;
-              const handoffMacroIds  = partyData?.handoff_macro_ids || [];
-              // Questa festa è sorgente di un handoff
-              if (handoffToPartyId && handoffMacroIds.length > 0) {
-                return (
-                  <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 mb-4">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 bg-violet-500 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                        <span className="text-white text-sm font-bold">↗</span>
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-violet-800">Passaggio Materiale Attivo</p>
-                        <p className="text-xs text-violet-700 mt-0.5">
-                          Al termine dello scarico dal furgone ({handoffMacroIds.length} macro), posiziona le macro indicate sullo scaffale della festa che segue — non portarle al magazzino.
-                        </p>
-                        <p className="text-xs text-violet-600 font-semibold mt-1.5">
-                          Il magazziniere NON deve fare i check finali/iniziali su questo materiale.
-                        </p>
-                      </div>
-                    </div>
+              {/* Tutti gli scaffali della festa */}
+              {allPartyShelves.length > 1 && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5" /> Tutti gli scaffali di questa festa
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {allPartyShelves.map((s) => (
+                      <span key={s}
+                        className={`text-sm font-bold px-3 py-1 rounded-full border ${
+                          s === shelfId
+                            ? "bg-primary/10 text-primary border-primary/30"
+                            : "bg-surface text-muted-foreground border-border"
+                        }`}>
+                        #{s}{s === shelfId ? " ← questo" : ""}
+                      </span>
+                    ))}
                   </div>
-                );
-              }
-              return null;
-            })()}
-
+                </div>
+              )}
+            </div>
             <div className="space-y-4">
               <h2 className="text-xl font-semibold text-foreground">Seleziona il tipo di check</h2>
               <div className="grid gap-4">
@@ -887,9 +961,9 @@ export default function CheckPage({ params }) {
                   const isDisabled = isCompleted || !isPreviousCompleted || !isRoleAllowed;
                   let statusMessage = "";
                   let statusColor = "text-muted-foreground";
-                  if (isCompleted) { statusMessage = "✓ Check già completato"; statusColor = "text-green-700 font-medium"; }
-                  else if (!isPreviousCompleted) { statusMessage = "🔒 Richiede completamento fase precedente"; statusColor = "text-amber-700 font-bold"; }
-                  else if (!isRoleAllowed) { statusMessage = `⛔ Richiesto ruolo: ${type.allowedRoles.join(", ")}`; statusColor = "text-red-500"; }
+                  if (isCompleted) { statusMessage = "\u2713 Check gi\u00e0 completato"; statusColor = "text-green-700 font-medium"; }
+                  else if (!isPreviousCompleted) { statusMessage = "\ud83d\udd12 Richiede completamento fase precedente"; statusColor = "text-amber-700 font-bold"; }
+                  else if (!isRoleAllowed) { statusMessage = `\u26d4 Richiesto ruolo: ${type.allowedRoles.join(", ")}`; statusColor = "text-red-500"; }
                   else { statusMessage = `Utente: ${currentUser.nome}`; }
                   return (
                     <motion.button key={type.id} whileHover={!isDisabled ? { scale: 1.02 } : {}} whileTap={!isDisabled ? { scale: 0.98 } : {}} onClick={() => !isDisabled && setCheckType(type.id)} disabled={isDisabled}
@@ -914,7 +988,7 @@ export default function CheckPage({ params }) {
     );
   }
 
-  // --- CHECK GIÀ COMPLETATO ---
+  // --- CHECK GI\u00c0 COMPLETATO ---
   if (isCheckCompleted) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -923,16 +997,16 @@ export default function CheckPage({ params }) {
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Check Completato</h1>
-          <p className="text-muted-foreground mb-6">Questo tipo di check è già stato completato per la festa "{partyData?.nome}".</p>
+          <p className="text-muted-foreground mb-6">Questo tipo di check \u00e8 gi\u00e0 stato completato per la festa "{partyData?.nome}".</p>
           <button onClick={() => setCheckType("")} className="btn-primary w-full mb-2">Scegli Altro Check</button>
         </motion.div>
       </div>
     );
   }
 
-  // ─────────────────────────────────────────────
+  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   // LISTA ITEMS (MAIN CHECK VIEW)
-  // ─────────────────────────────────────────────
+  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const categoriaConsentita = FASI_CATEGORIA_CONSENTITA.includes(checkType);
 
   return (
@@ -969,12 +1043,16 @@ export default function CheckPage({ params }) {
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-foreground">Progresso Check - Scaffale {shelfId}</h2>
-                  {checkType === "furgone_scaffale" && partyData?.handoff_to_party_id && (partyData?.handoff_macro_ids?.length > 0) && (
-                    <p className="text-xs text-violet-600 font-semibold mt-0.5">
-                      ↗ {partyData.handoff_macro_ids.length} macro vanno allo scaffale della festa successiva — non al magazzino.
-                    </p>
-                  )}
+                  <h2 className="text-xl font-semibold text-foreground">Progresso Check</h2>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {allPartyShelves.map((s) => (
+                      <span key={s} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                        s === shelfId
+                          ? "bg-primary text-white border-primary"
+                          : "bg-surface text-muted-foreground border-border"
+                      }`}>#{s}</span>
+                    ))}
+                  </div>
                 </div>
                 <span className="text-sm text-muted-foreground">{getCheckedCount()}/{getTotalItems()} completati</span>
               </div>
@@ -1005,7 +1083,7 @@ export default function CheckPage({ params }) {
                             <h4 className={`font-medium ${catChecked ? "text-green-700" : "text-foreground"}`}>{category.name}</h4>
                             {hasItems && (
                               <span className={`text-xs px-2 py-0.5 rounded ml-1 ${categoriaConsentita ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
-                                {categoriaConsentita ? "Scan categoria ✓" : "Scan singoli elementi"}
+                                {categoriaConsentita ? "Scan categoria \u2713" : "Scan singoli elementi"}
                               </span>
                             )}
                             {category.materiale_mancante && (
@@ -1032,7 +1110,7 @@ export default function CheckPage({ params }) {
                               <span className="text-sm font-medium flex-1">
                                 {category.materiale_mancante ? "Mancante" : reportedItemIds.has(category.id) ? `Segnalato: ${getReportInfo(category.id)?.tipo || "problema"}` : catChecked ? "Verificato via NFC" : "In attesa di scansione NFC"}
                               </span>
-                              {/* Bottone segnala danno — solo se non già segnalato/mancante */}
+                              {/* Bottone segnala danno \u2014 solo se non gi\u00e0 segnalato/mancante */}
                               {!category.materiale_mancante && !reportedItemIds.has(category.id) && (
                                 <button
                                   onClick={(e) => openDamageModal(e, category, category, macro)}
@@ -1086,7 +1164,7 @@ export default function CheckPage({ params }) {
                                       )}
                                     </span>
 
-                                    {/* Bottone segnala — solo se non già segnalato/mancante */}
+                                    {/* Bottone segnala \u2014 solo se non gi\u00e0 segnalato/mancante */}
                                     {!isDisabled && !isReported && (
                                       <button
                                         onClick={(e) => openDamageModal(e, item, category, macro)}

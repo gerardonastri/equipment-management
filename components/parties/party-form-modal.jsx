@@ -58,7 +58,7 @@ export function PartyFormModal({
   const availableAnimatori = animatoriList.filter((u) => !animatoriIds.includes(u.id));
 
   // ── Handoff ──────────────────────────────────────────────────────────────────
-  const handoffEnabled  = !!party.handoff_to_party_id;
+  const handoffEnabled  = party.handoff_to_party_id !== null && party.handoff_to_party_id !== undefined;
   const handoffMacroIds = Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [];
 
   // Candidate: stessa data, attive, non sé stessa

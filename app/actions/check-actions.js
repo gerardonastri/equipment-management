@@ -148,11 +148,18 @@ export async function getPartyDataForShelf(shelfId) {
 
     console.log("[v0] Final material hierarchy:", materialHierarchy);
 
+    // Tutti gli scaffali della festa — mostrati nella pagina check
+    const allPartyShelves = (party.shelves || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     return {
       party,
       checks: checks || [],
       materialHierarchy,
       existingLosses: existingLosses || [],
+      allPartyShelves,
     };
   } catch (error) {
     console.error("[v0] Error fetching party data:", error);
