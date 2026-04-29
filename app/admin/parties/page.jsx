@@ -110,6 +110,7 @@ export default function PartiesPage() {
 
   // ── Disponibilità macro ──
   const [usedMacroIds, setUsedMacroIds] = useState(new Set());
+  const [isLoadingMacros, setIsLoadingMacros] = useState(false);
 
   // ── Form party ──
   const [searchTerm, setSearchTerm] = useState("");
@@ -191,7 +192,7 @@ export default function PartiesPage() {
 
   // Ricarica macro usate quando cambia la lista feste
   useEffect(() => {
-    getUsedMacroIds(editParty?.id || null).then((ids) => setUsedMacroIds(ids));
+    getUsedMacroIds(editParty?.id || null, editParty?.data || selectedDate).then((ids) => setUsedMacroIds(ids));
   }, [syncedParties]);
 
   // Gerarchia speciale per la creazione — si aggiorna quando cambiano le macro selezionate
@@ -290,7 +291,7 @@ export default function PartiesPage() {
     });
     // Carica in parallelo: macro usate (per disabilitare) + macro già assegnate (per pre-selezionare)
     const [usedIds, assignedMacroIds] = await Promise.all([
-      getUsedMacroIds(party.id),
+      getUsedMacroIds(party.id, party.data),
       getPartyMacroIds(party.id),
     ]);
     setUsedMacroIds(usedIds);
@@ -322,7 +323,7 @@ export default function PartiesPage() {
       await assignMaterial(selectedParty.id, macroId);
       await loadPartyMaterialsData(selectedParty.id);
       await runSyncForDate(selectedDate);
-      setUsedMacroIds(await getUsedMacroIds(selectedParty.id));
+      setUsedMacroIds(await getUsedMacroIds(selectedParty.id, selectedParty.data));
     } catch (err) { console.error("Error assigning material:", err); alert("Errore nell'assegnazione del materiale"); }
   };
 
@@ -331,7 +332,7 @@ export default function PartiesPage() {
       await removeMaterial(selectedParty.id, macroId);
       await loadPartyMaterialsData(selectedParty.id);
       await runSyncForDate(selectedDate);
-      setUsedMacroIds(await getUsedMacroIds(selectedParty.id));
+      setUsedMacroIds(await getUsedMacroIds(selectedParty.id, selectedParty.data));
     } catch (err) { console.error("Error removing material:", err); alert("Errore nella rimozione del materiale"); }
   };
 
@@ -357,7 +358,7 @@ export default function PartiesPage() {
     setSelectedParty(party);
     setShowMaterialModal(true);
     await loadPartyMaterialsData(party.id);
-    setUsedMacroIds(await getUsedMacroIds(party.id));
+    setUsedMacroIds(await getUsedMacroIds(party.id, party.data));
   };
 
   const openHistoryModal = (party) => { setHistoryParty(party); setShowHistoryModal(true); };
@@ -507,7 +508,18 @@ export default function PartiesPage() {
             isOpen={showFormModal}
             isEdit={editParty !== null}
             party={editParty || newParty}
-            onPartyChange={(p) => { if (editParty) setEditParty(p); else setNewParty(p); }}
+            onPartyChange={(p) => {
+              if (editParty) setEditParty(p); else setNewParty(p);
+              // Se la data cambia, ricalcola le macro in uso per quel giorno
+              const currentParty = editParty || newParty;
+              if (p.data && p.data !== currentParty.data) {
+                setIsLoadingMacros(true);
+                getUsedMacroIds(p.id || null, p.data).then((ids) => {
+                  setUsedMacroIds(ids);
+                  setIsLoadingMacros(false);
+                });
+              }
+            }}
             users={users}
             macroCategories={macroCategories}
             selectedMaterials={selectedMaterials}
@@ -525,6 +537,7 @@ export default function PartiesPage() {
             onCancel={() => { setShowFormModal(false); setEditParty(null); setSelectedMaterials([]); setSelectedSingleItems([]); }}
             allParties={parties}
             usedMacroIds={usedMacroIds}
+            isLoadingMacros={isLoadingMacros}
             specialItemHierarchy={specialItemHierarchy}
             selectedSingleItems={selectedSingleItems}
             onSingleItemToggle={toggleSingleItemSelection}
@@ -537,6 +550,7 @@ export default function PartiesPage() {
             loading={loadingMaterials}
             macroCategories={macroCategories}
             usedMacroIds={usedMacroIds}
+            isLoadingMacros={isLoadingMacros}
             onAssignMaterial={handleAssignMaterial}
             onRemoveMaterial={handleRemoveMaterial}
             onClose={() => setShowMaterialModal(false)}

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShelfSelector } from "./shelf-selector";
 import {
   Star, Package, ChevronDown, ChevronRight, AlertCircle,
-  X, UserPlus, Users, ArrowRightLeft, Info,
+  X, UserPlus, Users, ArrowRightLeft, Info, Loader2,
 } from "lucide-react";
 
 export function PartyFormModal({
@@ -23,6 +23,7 @@ export function PartyFormModal({
   onCancel,
   allParties,
   usedMacroIds,
+  isLoadingMacros = false,
   isSubmitting = false,
   specialItemHierarchy,
   selectedSingleItems,
@@ -216,7 +217,15 @@ export function PartyFormModal({
           {/* ── Materiale ── */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <label className="block text-sm font-medium text-foreground">Materiale da Assegnare</label>
+              <label className="block text-sm font-medium text-foreground flex items-center gap-2">
+                Materiale da Assegnare
+                {isLoadingMacros && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-normal text-primary">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Calcolo disponibilità...
+                  </span>
+                )}
+              </label>
               <button
                 type="button"
                 onClick={() => setIsSpecial((v) => !v)}
@@ -229,7 +238,7 @@ export function PartyFormModal({
               </button>
             </div>
 
-            <div className="border border-border rounded-xl p-4 max-h-48 overflow-y-auto mb-3">
+            <div className={`border border-border rounded-xl p-4 max-h-48 overflow-y-auto mb-3 relative transition-opacity ${isLoadingMacros ? "opacity-50 pointer-events-none" : ""}`}>
               {macroCategories.length > 0 ? (
                 <div className="space-y-1.5">
                   {macroCategories.map((macro) => {
