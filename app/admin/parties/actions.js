@@ -20,6 +20,7 @@ function mapEventoToParty(evento) {
     cliente: evento.cliente || null,
     categoria_evento: evento.categoria || null,
     servizi: noteParts.join("\n\n") || null,
+    ora_inizio: evento.ora_inizio || null,
     source: "gestionale",
     last_synced_at: new Date().toISOString(),
   };
@@ -113,7 +114,7 @@ export async function syncPartiesByDate(date) {
     for (const party of toUpdate) {
       const { error: updateError } = await supabase
         .from("parties")
-        .update({ nome: party.nome, data: party.data, luogo: party.luogo, cliente: party.cliente, categoria_evento: party.categoria_evento, servizi: party.servizi, source: party.source, last_synced_at: party.last_synced_at })
+        .update({ nome: party.nome, data: party.data, luogo: party.luogo, cliente: party.cliente, categoria_evento: party.categoria_evento, servizi: party.servizi, ora_inizio: party.ora_inizio, source: party.source, last_synced_at: party.last_synced_at })
         .eq("external_id", party.external_id);
       if (!updateError) rowsUpserted++;
     }
