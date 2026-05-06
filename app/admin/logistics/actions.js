@@ -5,12 +5,10 @@ import { revalidatePath } from "next/cache";
 
 /**
  * Carica tutte le feste di una data con le rispettive logistiche.
- * Join con logistics table (se esiste) per pre-compilare i dati salvati.
  */
 export async function getLogisticsByDate(date) {
   const supabase = await createServerClient();
 
-  // Feste del giorno (escluse completate)
   const { data: parties, error: partiesError } = await supabase
     .from("parties")
     .select(`
@@ -30,7 +28,6 @@ export async function getLogisticsByDate(date) {
 
   if (!parties?.length) return [];
 
-  // Logistiche salvate per queste feste
   const partyIds = parties.map((p) => p.id);
   const { data: logistics } = await supabase
     .from("logistics")
@@ -42,9 +39,9 @@ export async function getLogisticsByDate(date) {
   );
 
   return parties.map((p) => ({
-  party: p,
-  logistics: logisticsMap[p.id] || null,
-}));
+    party: p,
+    logistics: logisticsMap[p.id] || null,
+  }));
 }
 
 /**
@@ -66,17 +63,25 @@ export async function getLogisticsUsers() {
 export async function saveLogistics(partyId, logisticsData) {
   const supabase = await createServerClient();
 
+  const payload = {
+    party_id: partyId,
+    staff_ids: logisticsData.staff_ids || [],
+    veicoli_andata: logisticsData.veicoli_andata || [],
+    driver_andata_id: logisticsData.driver_andata_id || null,
+    veicoli_ritorno: logisticsData.veicoli_ritorno || [],
+    driver_ritorno_id: logisticsData.driver_ritorno_id || null,
+    start_logistica: logisticsData.start_logistica || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Includi "note" solo dopo: ALTER TABLE logistics ADD COLUMN IF NOT EXISTS note text;
+  if (logisticsData.note !== undefined) {
+    payload.note = logisticsData.note || null;
+  }
+
   const { error } = await supabase
     .from("logistics")
-    .upsert({
-      party_id: partyId,
-      staff_ids: logisticsData.staff_ids || [],
-      driver_id: logisticsData.driver_id || null,
-      veicolo: logisticsData.veicolo || null,
-      start_logistica: logisticsData.start_logistica || null,
-      andata_ritorno: logisticsData.andata_ritorno ?? true,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "party_id" });
+    .upsert(payload, { onConflict: "party_id" });
 
   if (error) {
     console.error("[logistics] Error saving logistics:", error);
