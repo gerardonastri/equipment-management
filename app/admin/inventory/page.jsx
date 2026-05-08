@@ -31,6 +31,7 @@ import {
   deleteInventoryItem,
   getItemDetails,
   duplicateInventoryItem,
+  duplicateSimpleItem,
 } from "@/app/actions/inventory-actions";
 import DuplicateMacroModal from "@/components/inventory/duplicate-macro-modal";
 import InventoryFormModal from "@/components/inventory/inventory-form-modal";
@@ -340,6 +341,21 @@ export default function InventoryPage() {
     }
   };
 
+  const handleDuplicateSimple = async (item) => {
+    const suffix = prompt(`Duplica "${item.name}" — inserisci un suffisso per il nome:`, " copia");
+    if (suffix === null) return; // annullato
+    const newName = item.name + suffix.trim();
+    if (!newName || newName === item.name) { alert("Nome non valido."); return; }
+    setIsDuplicating(true);
+    try {
+      const result = await duplicateSimpleItem(item.id, newName);
+      if (result.error) { alert(result.error); return; }
+      mutate();
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
   // Badge stato per la card
   const getItemStatusBadge = (item) => {
     if (item.materiale_mancante)   return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200">Mancante</span>;
@@ -469,6 +485,13 @@ export default function InventoryPage() {
                       {item.type === "macro" && (
                         <button onClick={(e) => { e.stopPropagation(); setDuplicateItem(item); setIsDuplicateOpen(true); }}
                           className="flex items-center justify-center px-3 py-2 rounded-lg border border-border hover:bg-surface text-sm transition-colors text-muted-foreground hover:text-primary" title="Duplica macro">
+                          <CopyPlus className="w-4 h-4" />
+                        </button>
+                      )}
+                      {(item.type === "categoria" || item.type === "sotto") && (
+                        <button onClick={(e) => { e.stopPropagation(); handleDuplicateSimple(item); }}
+                          disabled={isDuplicating}
+                          className="flex items-center justify-center px-3 py-2 rounded-lg border border-border hover:bg-surface text-sm transition-colors text-muted-foreground hover:text-primary disabled:opacity-50" title={`Duplica ${item.type}`}>
                           <CopyPlus className="w-4 h-4" />
                         </button>
                       )}

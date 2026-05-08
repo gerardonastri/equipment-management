@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShelfSelector } from "./shelf-selector";
 import {
   Star, Package, ChevronDown, ChevronRight, AlertCircle,
-  X, UserPlus, Users, ArrowRightLeft, Info, Loader2,
+  X, UserPlus, Users, ArrowRightLeft, Info, Loader2, AlertTriangle,
 } from "lucide-react";
 
 export function PartyFormModal({
@@ -32,12 +32,15 @@ export function PartyFormModal({
   const [isSpecial, setIsSpecial]         = useState(false);
   const [expandedMacro, setExpandedMacro] = useState({});
   const [expandedCat, setExpandedCat]     = useState({});
+  // Alert staff mancante — mostrato solo dopo il primo tentativo di submit
+  const [showStaffAlert, setShowStaffAlert] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setIsSpecial(false);
       setExpandedMacro({});
       setExpandedCat({});
+      setShowStaffAlert(false);
     }
   }, [isOpen]);
 
@@ -58,11 +61,15 @@ export function PartyFormModal({
   const selectedAnimatori  = animatoriIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
   const availableAnimatori = animatoriList.filter((u) => !animatoriIds.includes(u.id));
 
+  // Staff mancante
+  const missingAnimatore   = animatoriIds.length === 0;
+  const missingMagazziniere = !party.magazziniere_id;
+
   // ── Handoff ──────────────────────────────────────────────────────────────────
-  const handoffEnabled  = party.handoff_to_party_id !== null && party.handoff_to_party_id !== undefined;
+  // FIX: era truthy anche con "" (stringa vuota) — ora controlliamo esplicitamente
+  const handoffEnabled  = !!(party.handoff_to_party_id);
   const handoffMacroIds = Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [];
 
-  // Candidate: stessa data, attive, non sé stessa
   const handoffCandidates = allParties.filter(
     (p) => p.id !== party.id && p.data === party.data && p.stato !== "scaricato_scaffale"
   );
@@ -75,6 +82,25 @@ export function PartyFormModal({
   };
 
   const handoffableMacros = macroCategories.filter((m) => selectedMaterials.includes(m.id));
+
+  // ── Submit con intercept per alert staff ────────────────────────────────────
+  const handleSubmitWithAlert = (e) => {
+    if (missingAnimatore || missingMagazziniere) {
+      e.preventDefault();
+      setShowStaffAlert(true);
+      // Scroll al banner
+      setTimeout(() => {
+        document.getElementById("staff-alert-banner")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+      return;
+    }
+    onSubmit(e);
+  };
+
+  const handleConfirmAnyway = (e) => {
+    setShowStaffAlert(false);
+    onSubmit({ preventDefault: () => {}, target: e.target });
+  };
 
   return (
     <motion.div
@@ -91,7 +117,7 @@ export function PartyFormModal({
           {isEdit ? "Modifica Festa" : "Crea Nuova Festa"}
         </h3>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={handleSubmitWithAlert} className="space-y-4">
 
           {/* Nome + Data */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -132,7 +158,12 @@ export function PartyFormModal({
           {/* ── Animatori (multi) ── */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
-              <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> Animatori</span>
+              <span className="flex items-center gap-1.5">
+                <Users className="w-4 h-4" /> Animatori
+                {missingAnimatore && (
+                  <span className="text-xs text-amber-600 font-normal ml-1">(nessuno assegnato)</span>
+                )}
+              </span>
             </label>
 
             {/* Chip */}
@@ -154,7 +185,9 @@ export function PartyFormModal({
               <select
                 value=""
                 onChange={(e) => { if (e.target.value) { addAnimatore(e.target.value); e.target.value = ""; } }}
-                className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm ${
+                  showStaffAlert && missingAnimatore ? "border-amber-400 bg-amber-50" : "border-input"
+                }`}
               >
                 <option value="">
                   {availableAnimatori.length === 0
@@ -173,11 +206,18 @@ export function PartyFormModal({
 
           {/* Magazziniere */}
           <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Magazziniere</label>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Magazziniere
+              {missingMagazziniere && (
+                <span className="text-xs text-amber-600 font-normal ml-1">(non assegnato)</span>
+              )}
+            </label>
             <select
               value={party.magazziniere_id || ""}
               onChange={(e) => onPartyChange({ ...party, magazziniere_id: e.target.value })}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring ${
+                showStaffAlert && missingMagazziniere ? "border-amber-400 bg-amber-50" : "border-input"
+              }`}
             >
               <option value="">Seleziona magazziniere...</option>
               {magazzinieriList.map((u) => (
@@ -185,6 +225,51 @@ export function PartyFormModal({
               ))}
             </select>
           </div>
+
+          {/* ── Alert staff mancante ── */}
+          <AnimatePresence>
+            {showStaffAlert && (missingAnimatore || missingMagazziniere) && (
+              <motion.div
+                id="staff-alert-banner"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-amber-800">Staff non completo</p>
+                      <ul className="text-xs text-amber-700 mt-1 space-y-0.5">
+                        {missingAnimatore   && <li>• Nessun animatore assegnato</li>}
+                        {missingMagazziniere && <li>• Nessun magazziniere assegnato</li>}
+                      </ul>
+                      <p className="text-xs text-amber-600 mt-2">
+                        Puoi comunque salvare e aggiungere lo staff in seguito.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowStaffAlert(false)}
+                      className="flex-1 py-2 px-3 rounded-lg border border-amber-300 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors"
+                    >
+                      Torna al form
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowStaffAlert(false); onSubmit({ preventDefault: () => {} }); }}
+                      className="flex-1 py-2 px-3 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition-colors"
+                    >
+                      Salva comunque
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Stato */}
           <div>
@@ -354,29 +439,30 @@ export function PartyFormModal({
               type="button"
               onClick={() => onPartyChange({
                 ...party,
-                handoff_to_party_id: handoffEnabled ? null : "",
-                handoff_macro_ids:   handoffEnabled ? [] : handoffMacroIds,
+                handoff_to_party_id: handoffEnabled ? null : null, // null → null disabilita, stringa → abilita col select
+                // trick: usiamo un sentinel per "abilitato ma senza festa selezionata"
+                _handoffOpen: !handoffEnabled,
               })}
-              className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${handoffEnabled ? "bg-violet-50 border-b border-violet-100" : "bg-surface hover:bg-muted/40"}`}
+              className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${(handoffEnabled || party._handoffOpen) ? "bg-violet-50 border-b border-violet-100" : "bg-surface hover:bg-muted/40"}`}
             >
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${handoffEnabled ? "bg-violet-500 text-white" : "bg-muted text-muted-foreground"}`}>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${(handoffEnabled || party._handoffOpen) ? "bg-violet-500 text-white" : "bg-muted text-muted-foreground"}`}>
                 <ArrowRightLeft className="w-4 h-4" />
               </div>
               <div className="flex-1 text-left">
-                <p className={`text-sm font-semibold ${handoffEnabled ? "text-violet-800" : "text-foreground"}`}>
+                <p className={`text-sm font-semibold ${(handoffEnabled || party._handoffOpen) ? "text-violet-800" : "text-foreground"}`}>
                   Passaggio Materiale a un'altra Festa
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Il magazziniere salta il controllo finale/iniziale — l'animatore gestisce il passaggio.
                 </p>
               </div>
-              <div className={`w-11 h-6 rounded-full transition-colors shrink-0 relative ${handoffEnabled ? "bg-violet-500" : "bg-gray-200"}`}>
-                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${handoffEnabled ? "translate-x-6" : "translate-x-1"}`} />
+              <div className={`w-11 h-6 rounded-full transition-colors shrink-0 relative ${(handoffEnabled || party._handoffOpen) ? "bg-violet-500" : "bg-gray-200"}`}>
+                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${(handoffEnabled || party._handoffOpen) ? "translate-x-6" : "translate-x-1"}`} />
               </div>
             </button>
 
             <AnimatePresence>
-              {handoffEnabled && (
+              {(handoffEnabled || party._handoffOpen) && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                   <div className="p-4 space-y-4 bg-violet-50/30">
 
@@ -395,7 +481,7 @@ export function PartyFormModal({
                       ) : (
                         <select
                           value={party.handoff_to_party_id || ""}
-                          onChange={(e) => onPartyChange({ ...party, handoff_to_party_id: e.target.value || null })}
+                          onChange={(e) => onPartyChange({ ...party, handoff_to_party_id: e.target.value || null, _handoffOpen: true })}
                           className="w-full px-3 py-2 border border-violet-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400 text-sm bg-white"
                         >
                           <option value="">Seleziona la festa che riceve il materiale...</option>

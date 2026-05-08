@@ -123,7 +123,7 @@ export default function PartiesPage() {
   const [partyMaterials, setPartyMaterials] = useState([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
   const [newParty, setNewParty] = useState({
-    nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [],
+    nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [],
     handoff_to_party_id: null, handoff_macro_ids: [],
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
@@ -267,10 +267,10 @@ export default function PartiesPage() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await createParty({ ...newParty, selectedMaterials, selectedSingleItems });
+      await createParty({ ...newParty, selectedMaterials, selectedSingleItems, animatori_ids: newParty.animatori_ids || [] });
       // Chiudi subito il form per feedback immediato
       setShowFormModal(false);
-      setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
+      setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
       setSelectedMaterials([]);
       setSelectedSingleItems([]);
       toast("Festa creata con successo!", "success");
@@ -287,7 +287,10 @@ export default function PartiesPage() {
   const handleEditParty = async (party) => {
     setEditParty({
       ...party,
-      shelves: party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => s.trim()) : [],
+      shelves:             party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => s.trim()) : [],
+      animatori_ids:       Array.isArray(party.animatori_ids) ? party.animatori_ids : [],
+      handoff_to_party_id: party.handoff_to_party_id || null,
+      handoff_macro_ids:   Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [],
     });
     // Carica in parallelo: macro usate (per disabilitare) + macro già assegnate (per pre-selezionare)
     const [usedIds, assignedMacroIds] = await Promise.all([
@@ -304,7 +307,7 @@ export default function PartiesPage() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await updateParty(editParty.id, { ...editParty, selectedMaterials });
+      await updateParty(editParty.id, { ...editParty, selectedMaterials, animatori_ids: editParty.animatori_ids || [], handoff_to_party_id: editParty.handoff_to_party_id || null, handoff_macro_ids: editParty.handoff_macro_ids || [] });
       setShowFormModal(false);
       setEditParty(null);
       setSelectedMaterials([]);
@@ -401,7 +404,7 @@ export default function PartiesPage() {
             <button
               onClick={() => {
                 setEditParty(null);
-                setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
+                setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
                 setSelectedMaterials([]);
                 setSelectedSingleItems([]);
                 setShowFormModal(true);

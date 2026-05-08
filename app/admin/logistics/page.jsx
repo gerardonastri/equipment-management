@@ -1,23 +1,23 @@
 "use client";
 
-
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Truck, MapPin, Clock, Users, User, Package,
+  Truck, MapPin, Clock, Users, Package,
   RefreshCw, CalendarDays, Check, X, Save,
   RotateCcw, Loader2, CheckCheck, TriangleAlert,
-  Info, Printer, ArrowRight, ArrowLeft,
+  Info, Printer, ArrowRight, ArrowLeft, Plus, ChevronDown,
+  Pencil, Trash2
 } from "lucide-react";
 import Navbar from "@/components/navbar";
-import { getLogisticsByDate, getLogisticsUsers, saveLogistics } from "./actions";
+import { getLogisticsByDate, getLogisticsUsers, saveLogistics, getMovidaAnimatoriForDate } from "./actions";
 
-
-// ─── Costanti ─────────────────────────────────────────────────────────────────
-const VEICOLI = [
+// ─── Costanti & Helper ────────────────────────────────────────────────────────
+const DEFAULT_VEICOLI = [
   "cubo", "blu", "granata", "grigio",
   "scudo", "noleggio 1", "noleggio 2", "auto propria",
 ];
+
 const VEICOLO_COLORS = {
   "cubo":        "bg-slate-100 text-slate-700 border-slate-300",
   "blu":         "bg-blue-100 text-blue-700 border-blue-300",
@@ -28,13 +28,14 @@ const VEICOLO_COLORS = {
   "noleggio 2":  "bg-cyan-100 text-cyan-700 border-cyan-300",
   "auto propria":"bg-amber-100 text-amber-700 border-amber-300",
 };
+
 const vLabel = (v) =>
   ({ "noleggio 1": "Noleggio 1", "noleggio 2": "Noleggio 2", "auto propria": "Auto Propria" }[v] ||
   v.charAt(0).toUpperCase() + v.slice(1));
 
-
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
+const normalizeId = (id) => String(id || "").toLowerCase().replace(/\s+/g, "");
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 function useToast() {
@@ -47,6 +48,7 @@ function useToast() {
   const remove = useCallback((id) => setToasts((p) => p.filter((t) => t.id !== id)), []);
   return { toasts, toast: add, removeToast: remove };
 }
+
 function ToastContainer({ toasts, removeToast }) {
   const cfg = {
     success: { icon: <CheckCheck className="w-4 h-4" />, cls: "bg-green-600 text-white" },
@@ -71,10 +73,9 @@ function ToastContainer({ toasts, removeToast }) {
   );
 }
 
-
-// ─── Multi-Veicolo Selector ───────────────────────────────────────────────────
-function VeicoloSelector({ selected, onChange, placeholder }) {
-  const available = VEICOLI.filter((v) => !selected.includes(v));
+// ─── Componenti UI (Selector) ────────────────────────────────────────────────
+function VeicoloSelector({ selected, onChange, placeholder, allVeicoli }) {
+  const available = allVeicoli.filter((v) => !selected.includes(v));
   return (
     <div className="space-y-1.5">
       {selected.length > 0 && (
@@ -98,19 +99,17 @@ function VeicoloSelector({ selected, onChange, placeholder }) {
   );
 }
 
-
-// ─── Staff Selector ───────────────────────────────────────────────────────────
-function StaffSelector({ allUsers, selectedIds, onChange }) {
-  const selected = selectedIds.map((id) => allUsers.find((u) => u.id === id)).filter(Boolean);
-  const available = allUsers.filter((u) => !selectedIds.includes(u.id));
+function UserSelector({ allUsers, selectedIds, onChange, placeholder = "Aggiungi...", emptyText = "Tutti assegnati", colorClass = "bg-primary/10 text-primary border-primary/20" }) {
+  const selected  = selectedIds.map((id) => allUsers.find((u) => String(u.id) === String(id))).filter(Boolean);
+  const available = allUsers.filter((u) => !selectedIds.includes(String(u.id)));
   return (
     <div className="space-y-1.5">
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {selected.map((u) => (
-            <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-lg text-xs font-medium border border-primary/20">
+            <span key={u.id} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${colorClass}`}>
               {u.nome}
-              <button type="button" onClick={() => onChange(selectedIds.filter((id) => id !== u.id))} className="hover:opacity-60">
+              <button type="button" onClick={() => onChange(selectedIds.filter((id) => String(id) !== String(u.id)))} className="hover:opacity-60">
                 <X className="w-2.5 h-2.5" />
               </button>
             </span>
@@ -119,38 +118,51 @@ function StaffSelector({ allUsers, selectedIds, onChange }) {
       )}
       <select value="" onChange={(e) => { if (e.target.value) onChange([...selectedIds, e.target.value]); }}
         className="w-full px-2 py-1.5 border border-input rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-ring bg-surface">
-        <option value="">{available.length === 0 ? "Tutti assegnati" : selected.length === 0 ? "Aggiungi staff..." : "+"}</option>
+        <option value="">{available.length === 0 ? emptyText : selected.length === 0 ? placeholder : "+"}</option>
         {available.map((u) => <option key={u.id} value={u.id}>{u.nome} ({u.ruolo})</option>)}
       </select>
     </div>
   );
 }
 
-
 // ─── Riga Logistica ───────────────────────────────────────────────────────────
-function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast }) {
+function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaAnimatori, allVeicoli }) {
   const { party, logistics } = entry;
 
-  const buildForm = (l) => ({
-    staff_ids:         l?.staff_ids         || [],
-    driver_andata_id:  l?.driver_andata_id  || "",
-    veicoli_andata:    l?.veicoli_andata    || [],
-    driver_ritorno_id: l?.driver_ritorno_id || "",
-    veicoli_ritorno:   l?.veicoli_ritorno   || [],
-    start_logistica:   l?.start_logistica   || "",
-    note:              l?.note              || "",
-  });
+  // 1. AUTO-MATCHING SILENZIOSO: Incrocia animatori Movida col nostro DB utenti
+  const matchedStaffIds = useMemo(() => {
+    if (!movidaAnimatori || !allUsers) return [];
+    const movidaNames = movidaAnimatori.map(a => normalizeId(a.denominazione));
+    return allUsers
+      .filter(u => movidaNames.includes(normalizeId(u.nome)))
+      .map(u => String(u.id));
+  }, [movidaAnimatori, allUsers]);
 
-  const [form, setForm]       = useState(() => buildForm(logistics));
-  const [saving, setSaving]   = useState(false);
-  const [saved, setSaved]     = useState(false);
-  const [dirty, setDirty]     = useState(false);
-  // ── MODIFICA 2: toggle solo andata ──────────────────────────────────────────
+  const buildForm = useCallback((l) => {
+    // Unisci gli ID salvati nel DB con quelli trovati dal matching automatico in background
+    const savedStaff = (l?.staff_ids || []).map(String);
+    const mergedStaff = Array.from(new Set([...savedStaff, ...matchedStaffIds]));
+
+    return {
+      staff_ids:           mergedStaff,
+      drivers_andata_ids:  l?.drivers_andata_ids  || (l?.driver_andata_id ? [l.driver_andata_id] : []),
+      veicoli_andata:      l?.veicoli_andata      || [],
+      drivers_ritorno_ids: l?.drivers_ritorno_ids || (l?.driver_ritorno_id ? [l.driver_ritorno_id] : []),
+      veicoli_ritorno:     l?.veicoli_ritorno     || [],
+      start_logistica:     l?.start_logistica     || "",
+      note:                l?.note                || "",
+    };
+  }, [matchedStaffIds]);
+
+  const [form, setForm]     = useState(() => buildForm(logistics));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [dirty, setDirty]   = useState(false);
   const [soloAndata, setSoloAndata] = useState(
     logistics?.solo_andata !== undefined ? logistics.solo_andata : false
   );
 
-  useEffect(() => { setForm(buildForm(logistics)); setDirty(false); }, [logistics]);
+  useEffect(() => { setForm(buildForm(logistics)); setDirty(false); }, [logistics, buildForm]);
 
   const update = (key, value) => { setForm((p) => ({ ...p, [key]: value })); setDirty(true); setSaved(false); };
 
@@ -160,20 +172,19 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast }) {
       const dataToSave = {
         ...form,
         solo_andata: soloAndata,
-        ...(soloAndata ? { veicoli_ritorno: [], driver_ritorno_id: "" } : {}),
+        ...(soloAndata ? { veicoli_ritorno: [], drivers_ritorno_ids: [] } : {}),
       };
       const result = await saveLogistics(party.id, dataToSave);
       if (result.error) { toast(result.error, "error"); return; }
       setSaved(true); setDirty(false);
       setTimeout(() => setSaved(false), 2500);
       onSave();
-      // ── MODIFICA 1: ricarica dal server dopo salvataggio ───────────────────
       onRefresh();
     } catch { toast("Errore nel salvataggio", "error"); }
     finally { setSaving(false); }
   };
 
-  const isConfigured = form.driver_andata_id || form.veicoli_andata.length > 0;
+  const isConfigured = form.drivers_andata_ids.length > 0 || form.veicoli_andata.length > 0;
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
@@ -183,66 +194,55 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast }) {
         : "border-border"
       }`}>
 
-      {/* Header festa */}
-      <div className="px-5 py-3.5 border-b border-border bg-surface/40 flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-black text-muted-foreground w-5 text-center">{index + 1}</span>
-            <h3 className="font-bold text-foreground text-sm leading-tight">{party.nome}</h3>
-            {party.cliente && (
-              <span className="text-xs text-muted-foreground bg-surface border border-border px-2 py-0.5 rounded-full">{party.cliente}</span>
-            )}
+      {/* Header festa - Ora pulito senza la sezione animatori separata */}
+      <div className="px-5 py-3.5 border-b border-border bg-surface/40">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-black text-muted-foreground w-5 text-center">{index + 1}</span>
+              <h3 className="font-bold text-foreground text-sm leading-tight">{party.nome}</h3>
+              {party.cliente && (
+                <span className="text-xs text-muted-foreground bg-surface border border-border px-2 py-0.5 rounded-full">{party.cliente}</span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground pl-7">
+              <span className="flex items-center gap-1 shrink-0"><MapPin className="w-3 h-3" />{party.luogo}</span>
+              {party.ora_inizio && (
+                <span className="flex items-center gap-1 font-bold text-foreground"><Clock className="w-3 h-3" />{party.ora_inizio}</span>
+              )}
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground pl-7">
-            <span className="flex items-center gap-1 shrink-0"><MapPin className="w-3 h-3" />{party.luogo}</span>
-            {party.ora_inizio && (
-              <span className="flex items-center gap-1 font-bold text-foreground"><Clock className="w-3 h-3" />{party.ora_inizio}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {dirty && (
+              <button onClick={() => { setForm(buildForm(logistics)); setDirty(false); }}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" title="Annulla modifiche">
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
             )}
-            {party.servizi && (
-              <span className="opacity-70 truncate max-w-xs">
-                {party.servizi.replace(/\\n+/g, " · ").slice(0, 80)}{party.servizi.length > 80 ? "…" : ""}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {dirty && (
-            <button onClick={() => { setForm(buildForm(logistics)); setDirty(false); }}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" title="Annulla modifiche">
-              <RotateCcw className="w-3.5 h-3.5" />
+            <button onClick={handleSave} disabled={saving || !dirty}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                saved ? "bg-green-500 text-white"
+                : dirty ? "bg-foreground text-background hover:opacity-90"
+                : "bg-surface text-muted-foreground border border-border cursor-default"
+              }`}>
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <CheckCheck className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+              {saving ? "Salvo…" : saved ? "Salvato" : "Salva"}
             </button>
-          )}
-          <button onClick={handleSave} disabled={saving || !dirty}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-              saved ? "bg-green-500 text-white"
-              : dirty ? "btn-primary"
-              : "bg-surface text-muted-foreground border border-border cursor-default"
-            }`}>
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <CheckCheck className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-            {saving ? "Salvo…" : saved ? "Salvato" : "Salva"}
-          </button>
+          </div>
         </div>
       </div>
 
-      {/* ── MODIFICA 2: Toggle solo andata / andata+ritorno ─────────────────── */}
+      {/* Toggle andata/ritorno */}
       <div className="px-5 pt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => { setSoloAndata(true); setDirty(true); setSaved(false); }}
+        <button type="button" onClick={() => { setSoloAndata(true); setDirty(true); setSaved(false); }}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all ${
-            soloAndata
-              ? "bg-green-50 border-green-300 text-green-700"
-              : "bg-surface border-border text-muted-foreground hover:text-foreground"
+            soloAndata ? "bg-green-50 border-green-300 text-green-700" : "bg-surface border-border text-muted-foreground hover:text-foreground"
           }`}>
           <ArrowRight className="w-3 h-3" />Solo andata
         </button>
-        <button
-          type="button"
-          onClick={() => { setSoloAndata(false); setDirty(true); setSaved(false); }}
+        <button type="button" onClick={() => { setSoloAndata(false); setDirty(true); setSaved(false); }}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all ${
-            !soloAndata
-              ? "bg-blue-50 border-blue-300 text-blue-700"
-              : "bg-surface border-border text-muted-foreground hover:text-foreground"
+            !soloAndata ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-surface border-border text-muted-foreground hover:text-foreground"
           }`}>
           <ArrowLeft className="w-3 h-3" />Andata e ritorno
         </button>
@@ -250,35 +250,30 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast }) {
 
       {/* Campi logistica */}
       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-
-        {/* Staff */}
+        {/* Staff (Ora funge da hub unico per Animatori+Staff Extra) */}
         <div>
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1">
             <Users className="w-3 h-3" />Staff
           </label>
-          <StaffSelector allUsers={allUsers} selectedIds={form.staff_ids} onChange={(ids) => update("staff_ids", ids)} />
+          <UserSelector allUsers={allUsers} selectedIds={form.staff_ids} onChange={(ids) => update("staff_ids", ids)} />
         </div>
 
-        {/* ANDATA */}
+        {/* Andata */}
         <div className="rounded-xl border border-green-200 bg-green-50/40 p-3 space-y-2.5">
           <p className="text-xs font-bold text-green-700 flex items-center gap-1.5 mb-0.5">
             <ArrowRight className="w-3.5 h-3.5" />Andata
           </p>
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Driver</label>
-            <select value={form.driver_andata_id} onChange={(e) => update("driver_andata_id", e.target.value)}
-              className="w-full px-2 py-1.5 border border-input rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-ring bg-white">
-              <option value="">— Nessuno —</option>
-              {allUsers.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-            </select>
+            <UserSelector allUsers={allUsers} selectedIds={form.drivers_andata_ids} onChange={(ids) => update("drivers_andata_ids", ids)} placeholder="Aggiungi driver..." colorClass="bg-green-100 text-green-800 border-green-300" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Mezzi</label>
-            <VeicoloSelector selected={form.veicoli_andata} onChange={(v) => update("veicoli_andata", v)} placeholder="Aggiungi mezzo andata..." />
+            <VeicoloSelector allVeicoli={allVeicoli} selected={form.veicoli_andata} onChange={(v) => update("veicoli_andata", v)} placeholder="Aggiungi mezzo..." />
           </div>
         </div>
 
-        {/* RITORNO — nascosto se solo andata */}
+        {/* Ritorno */}
         {!soloAndata ? (
           <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 space-y-2.5">
             <p className="text-xs font-bold text-blue-700 flex items-center gap-1.5 mb-0.5">
@@ -286,20 +281,16 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast }) {
             </p>
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Driver</label>
-              <select value={form.driver_ritorno_id} onChange={(e) => update("driver_ritorno_id", e.target.value)}
-                className="w-full px-2 py-1.5 border border-input rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-ring bg-white">
-                <option value="">— Come andata —</option>
-                {allUsers.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-              </select>
+              <UserSelector allUsers={allUsers} selectedIds={form.drivers_ritorno_ids} onChange={(ids) => update("drivers_ritorno_ids", ids)} placeholder="Aggiungi driver..." colorClass="bg-blue-100 text-blue-800 border-blue-300" />
             </div>
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Mezzi</label>
-              <VeicoloSelector selected={form.veicoli_ritorno} onChange={(v) => update("veicoli_ritorno", v)} placeholder="Aggiungi mezzo ritorno..." />
+              <VeicoloSelector allVeicoli={allVeicoli} selected={form.veicoli_ritorno} onChange={(v) => update("veicoli_ritorno", v)} placeholder="Aggiungi mezzo..." />
             </div>
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-green-200 bg-green-50/20 p-3 flex items-center justify-center">
-            <span className="text-xs text-green-600 font-medium opacity-60">Solo andata selezionata</span>
+            <span className="text-xs text-green-600 font-medium opacity-60">Solo andata</span>
           </div>
         )}
 
@@ -324,68 +315,100 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast }) {
   );
 }
 
-
-// ─── STAMPA ───────────────────────────────────────────────────────────────────
-function handlePrint({ entries, allUsers, date }) {
-  const dateStr = new Date(date + "T00:00:00").toLocaleDateString("it-IT", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
-  const getName = (id) => allUsers.find((u) => u.id === id)?.nome || "—";
-  const getStaff = (ids) => (ids || []).map((id) => getName(id)).join(", ") || "—";
-  const chipA = (v) => `<span style="display:inline-block;padding:1px 6px;border-radius:99px;background:#dcfce7;border:1px solid #86efac;color:#166534;font-size:9px;font-weight:600;margin:1px">${v.toUpperCase()}</span>`;
-  const chipR = (v) => `<span style="display:inline-block;padding:1px 6px;border-radius:99px;background:#dbeafe;border:1px solid #93c5fd;color:#1e40af;font-size:9px;font-weight:600;margin:1px">${v.toUpperCase()}</span>`;
-
-  const rows = entries.map((e, i) => {
-    const { party, logistics: l } = e;
-    const mezziA = (l?.veicoli_andata || []).map(chipA).join("") || "—";
-    const mezziR = l?.solo_andata
-      ? `<span style="font-style:italic;color:#9ca3af">Solo andata</span>`
-      : (l?.veicoli_ritorno || []).map(chipR).join("") || "—";
-    const driverA = l?.driver_andata_id ? getName(l.driver_andata_id) : "—";
-    const driverR = l?.solo_andata
-      ? "—"
-      : l?.driver_ritorno_id ? getName(l.driver_ritorno_id) : (l?.driver_andata_id ? `↑ ${getName(l.driver_andata_id)}` : "—");
-    const servizi = (party.servizi || "").replace(/\\n+/g, " · ").slice(0, 90);
-    const bg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
-    return `<tr style="background:${bg};border-bottom:1px solid #e5e7eb">
-      <td style="padding:7px 8px;text-align:center;font-weight:bold;color:#9ca3af">${i + 1}</td>
-      <td style="padding:7px 8px;font-weight:600">${party.luogo}<br><span style="font-size:9px;color:#6b7280;font-weight:normal">${party.nome}${party.cliente ? ` · ${party.cliente}` : ""}</span></td>
-      <td style="padding:7px 8px;font-weight:bold">${party.ora_inizio || "—"}</td>
-      <td style="padding:7px 8px;font-size:9px;color:#6b7280;max-width:150px">${servizi || "—"}</td>
-      <td style="padding:7px 8px;font-weight:600">${l?.start_logistica || "—"}</td>
-      <td style="padding:7px 8px;font-size:10px">${getStaff(l?.staff_ids)}</td>
-      <td style="padding:7px 8px;font-size:10px">${driverA}<br>${mezziA}</td>
-      <td style="padding:7px 8px;font-size:10px">${driverR}<br>${mezziR}</td>
-      <td style="padding:7px 8px;font-size:10px;color:#6b7280">${l?.note || ""}</td>
-    </tr>`;
-  }).join("");
-
-  const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
-<title>Logistica — ${dateStr}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}
-h1{font-size:15px;font-weight:bold;margin-bottom:2px}.sub{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}
-table{width:100%;border-collapse:collapse}thead tr{background:#111;color:#fff}
-thead th{padding:7px 8px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
-.footer{margin-top:14px;font-size:9px;color:#aaa}@media print{body{padding:8px}@page{margin:10mm}}</style>
+// ─── Motore di Stampa ─────────────────────────────────────────────────────────
+function generateHtmlReport(title, dateStr, contentHtml) {
+  return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
+<title>${title} — ${dateStr}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:11px;color:#111;padding:24px}
+  h1{font-size:16px;font-weight:800;margin-bottom:2px}.sub{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.05em;margin-bottom:20px}
+  h2{font-size:13px;font-weight:700;margin-top:24px;margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid #eaeaea;color:#333}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  thead tr{background:#111;color:#fff}
+  thead th{padding:8px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+  tbody tr{border-bottom:1px solid #eaeaea}
+  tbody tr:nth-child(even){background:#fafafa}
+  td{padding:8px;vertical-align:top}
+  .chip{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:600;margin:1px}
+  .footer{margin-top:24px;font-size:9px;color:#999;text-align:center}
+  @media print{body{padding:0}@page{margin:10mm}}
+</style>
 </head><body>
-<h1>LOGISTICA — ${dateStr.toUpperCase()}</h1>
-<div class="sub">Prospetto operativo del giorno · Movida Manager</div>
-<table>
-<thead><tr>
-  <th>#</th><th>Location</th><th>Ora</th><th>Servizi</th>
-  <th>Start Log.</th><th>Staff</th><th>Andata</th><th>Ritorno</th><th>Note</th>
-</tr></thead>
-<tbody>${rows}</tbody>
-</table>
-<div class="footer">Stampato il ${new Date().toLocaleString("it-IT")} — Movida Manager</div>
+<h1>${title.toUpperCase()} — ${dateStr.toUpperCase()}</h1>
+<div class="sub">Prospetto operativo · Movida Manager</div>
+${contentHtml}
+<div class="footer">Stampato il ${new Date().toLocaleString("it-IT")}</div>
 </body></html>`;
-
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, "_blank");
-  if (win) setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 500);
 }
 
+function handlePrint({ entries, allUsers, allVeicoli, date, type }) {
+  const dateStr = new Date(date + "T00:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const getName  = (id) => allUsers.find((u) => String(u.id) === String(id))?.nome || "—";
+  const getNames = (ids) => (ids || []).map(getName).join(", ") || "—";
+
+  const buildRow = (e, i) => {
+    const { party, logistics: l } = e;
+    
+    return `<tr>
+      <td style="font-weight:bold;color:#888;text-align:center">${i + 1}</td>
+      <td><strong>${party.luogo}</strong><br><span style="font-size:9px;color:#666">${party.nome}</span></td>
+      <td><strong>${party.ora_inizio || "—"}</strong></td>
+      <td>${l?.start_logistica || "—"}</td>
+      <td>${getNames(l?.staff_ids)}</td>
+      <td><strong style="color:#166534">A:</strong> ${getNames(l?.drivers_andata_ids)}<br><span style="font-size:9px">${(l?.veicoli_andata||[]).join(", ")}</span></td>
+      <td><strong style="color:#1e40af">R:</strong> ${l?.solo_andata ? '<i>Solo andata</i>' : getNames(l?.drivers_ritorno_ids)}<br><span style="font-size:9px">${l?.solo_andata ? '' : (l?.veicoli_ritorno||[]).join(", ")}</span></td>
+      <td style="font-size:9px;color:#666">${l?.note || ""}</td>
+    </tr>`;
+  };
+
+  const tableHeader = `<table><thead><tr><th>#</th><th>Location / Festa</th><th>Ora Festa</th><th>Start Log.</th><th>Staff</th><th>Andata</th><th>Ritorno</th><th>Note</th></tr></thead><tbody>`;
+
+  let contentHtml = "";
+  let title = "Logistica Giornaliera";
+
+  if (type === "daily") {
+    contentHtml = tableHeader + entries.map((e, i) => buildRow(e, i)).join("") + `</tbody></table>`;
+  } 
+  else if (type === "driver") {
+    title = "Logistica per Driver";
+    const driverIds = new Set();
+    entries.forEach(e => {
+      (e.logistics?.drivers_andata_ids || []).forEach(id => driverIds.add(String(id)));
+      (e.logistics?.drivers_ritorno_ids || []).forEach(id => driverIds.add(String(id)));
+    });
+
+    Array.from(driverIds).forEach(id => {
+      const driverName = getName(id);
+      const driverEntries = entries.filter(e => 
+        (e.logistics?.drivers_andata_ids || []).includes(String(id)) || 
+        (e.logistics?.drivers_ritorno_ids || []).includes(String(id))
+      );
+      contentHtml += `<h2>Driver: ${driverName.toUpperCase()}</h2>${tableHeader}${driverEntries.map((e, i) => buildRow(e, i)).join("")}</tbody></table>`;
+    });
+  } 
+  else if (type === "vehicle") {
+    title = "Logistica per Furgone";
+    const activeVehicles = new Set();
+    entries.forEach(e => {
+      (e.logistics?.veicoli_andata || []).forEach(v => activeVehicles.add(v));
+      (e.logistics?.veicoli_ritorno || []).forEach(v => activeVehicles.add(v));
+    });
+
+    Array.from(activeVehicles).forEach(v => {
+      const vehicleEntries = entries.filter(e => 
+        (e.logistics?.veicoli_andata || []).includes(v) || 
+        (e.logistics?.veicoli_ritorno || []).includes(v)
+      );
+      contentHtml += `<h2>Mezzo: ${v.toUpperCase()}</h2>${tableHeader}${vehicleEntries.map((e, i) => buildRow(e, i)).join("")}</tbody></table>`;
+    });
+  }
+
+  const html = generateHtmlReport(title, dateStr, contentHtml);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, "_blank");
+  if (win) setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 500);
+}
 
 // ─── PAGINA PRINCIPALE ────────────────────────────────────────────────────────
 export default function LogisticsPage() {
@@ -395,16 +418,84 @@ export default function LogisticsPage() {
   const [allUsers, setAllUsers]         = useState([]);
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
+  const [movidaMap, setMovidaMap]       = useState({});
+  const [printMenuOpen, setPrintMenuOpen] = useState(false);
+  
+  // Custom Vehicles State
+  const [customVehicles, setCustomVehicles] = useState([]);
+  const [newVehicleName, setNewVehicleName] = useState("");
+  const [editingVehicleIdx, setEditingVehicleIdx] = useState(null);
+  const [editVehicleValue, setEditVehicleValue]   = useState("");
+
+  const printMenuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (printMenuRef.current && !printMenuRef.current.contains(event.target)) {
+        setPrintMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("customVehicles");
+    if (stored) {
+      try { setCustomVehicles(JSON.parse(stored)); } catch (e) {}
+    }
+  }, []);
+
+  const saveCustomVehiclesToLocal = (updated) => {
+    setCustomVehicles(updated);
+    localStorage.setItem("customVehicles", JSON.stringify(updated));
+  };
+
+  const addCustomVehicle = () => {
+    const val = newVehicleName.trim().toLowerCase();
+    if (!val || DEFAULT_VEICOLI.includes(val) || customVehicles.includes(val)) return;
+    saveCustomVehiclesToLocal([...customVehicles, val]);
+    setNewVehicleName("");
+    toast(`Mezzo "${val}" aggiunto alla lista`, "success");
+  };
+
+  const deleteCustomVehicle = (index) => {
+    const updated = customVehicles.filter((_, i) => i !== index);
+    saveCustomVehiclesToLocal(updated);
+    toast("Mezzo eliminato", "info");
+  };
+
+  const startEditingVehicle = (index) => {
+    setEditingVehicleIdx(index);
+    setEditVehicleValue(customVehicles[index]);
+  };
+
+  const saveEditedVehicle = () => {
+    const val = editVehicleValue.trim().toLowerCase();
+    if (!val || (val !== customVehicles[editingVehicleIdx] && customVehicles.includes(val))) {
+      setEditingVehicleIdx(null);
+      return; // Nome non valido o duplicato
+    }
+    const updated = [...customVehicles];
+    updated[editingVehicleIdx] = val;
+    saveCustomVehiclesToLocal(updated);
+    setEditingVehicleIdx(null);
+    toast("Mezzo aggiornato", "success");
+  };
+
+  const allVeicoli = [...new Set([...DEFAULT_VEICOLI, ...customVehicles])];
 
   const loadData = useCallback(async (date, isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
-      const [entriesData, usersData] = await Promise.all([
+      const [entriesData, usersData, movidaData] = await Promise.all([
         getLogisticsByDate(date),
         getLogisticsUsers(),
+        getMovidaAnimatoriForDate(date),
       ]);
       setEntries((entriesData || []).filter((e) => e?.party?.id));
       setAllUsers(usersData || []);
+      setMovidaMap(movidaData || {});
     } catch (err) {
       console.error("[logistics] loadData error:", err);
       toast("Errore nel caricamento dei dati", "error");
@@ -412,15 +503,15 @@ export default function LogisticsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [toast]);
 
-  useEffect(() => { loadData(selectedDate); }, [selectedDate]);
+  useEffect(() => { loadData(selectedDate); }, [selectedDate, loadData]);
 
-  const filled  = entries.filter((e) => e.logistics?.driver_andata_id || e.logistics?.veicoli_andata?.length).length;
+  const filled  = entries.filter((e) => (e.logistics?.drivers_andata_ids?.length > 0) || (e.logistics?.veicoli_andata?.length > 0)).length;
   const missing = entries.length - filled;
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-surface pb-20">
       <Navbar />
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
@@ -438,37 +529,50 @@ export default function LogisticsPage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              
+              {/* Dropdown Stampa */}
               {!loading && entries.length > 0 && (
-                <button
-                  onClick={() => handlePrint({ entries, allUsers, date: selectedDate })}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-card hover:bg-surface text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                  <Printer className="w-4 h-4" />Stampa prospetto
-                </button>
+                <div className="relative" ref={printMenuRef}>
+                  <button
+                    onClick={() => setPrintMenuOpen(!printMenuOpen)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-card hover:bg-surface text-sm font-medium text-foreground transition-colors shadow-sm">
+                    <Printer className="w-4 h-4" />Stampa <ChevronDown className="w-3.5 h-3.5 opacity-50" />
+                  </button>
+                  <AnimatePresence>
+                    {printMenuOpen && (
+                      <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                        className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-xl shadow-xl overflow-hidden z-50">
+                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, date: selectedDate, type: "daily" }); setPrintMenuOpen(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors border-b border-border">Intera Giornata</button>
+                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, date: selectedDate, type: "driver" }); setPrintMenuOpen(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors border-b border-border">Raggruppa per Driver</button>
+                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, date: selectedDate, type: "vehicle" }); setPrintMenuOpen(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors">Raggruppa per Furgone</button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               )}
+
               <div className="relative">
                 <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
-                  className="pl-9 pr-3 py-2 border border-input rounded-xl focus:outline-none focus:ring-2 focus:ring-ring text-sm bg-card" />
+                  className="pl-9 pr-3 py-2 border border-input rounded-xl focus:outline-none focus:ring-2 focus:ring-ring text-sm bg-card shadow-sm" />
               </div>
               <button onClick={() => loadData(selectedDate, true)} disabled={refreshing}
-                className="p-2.5 rounded-xl border border-border bg-card hover:bg-surface text-muted-foreground transition-colors disabled:opacity-40">
+                className="p-2.5 rounded-xl border border-border bg-card hover:bg-surface text-muted-foreground transition-colors disabled:opacity-40 shadow-sm">
                 <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
               </button>
             </div>
           </div>
 
-          {/* Lista */}
+          {/* Lista Feste */}
           {loading ? (
             <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="bg-card rounded-2xl border border-border overflow-hidden animate-pulse">
-                  <div className="px-5 py-4 border-b border-border bg-surface/40">
-                    <div className="h-4 bg-surface rounded-lg w-1/3 mb-2" />
-                    <div className="h-3 bg-surface rounded-lg w-1/2" />
-                  </div>
-                  <div className="p-4 grid grid-cols-4 gap-4">
-                    {Array.from({ length: 4 }).map((_, j) => <div key={j} className="h-20 bg-surface rounded-xl" />)}
-                  </div>
+                  <div className="px-5 py-4 border-b border-border bg-surface/40"><div className="h-4 bg-surface rounded-lg w-1/3 mb-2" /><div className="h-3 bg-surface rounded-lg w-1/2" /></div>
+                  <div className="p-4 grid grid-cols-4 gap-4">{Array.from({ length: 4 }).map((_, j) => <div key={j} className="h-20 bg-surface rounded-xl" />)}</div>
                 </div>
               ))}
             </div>
@@ -482,19 +586,65 @@ export default function LogisticsPage() {
             </motion.div>
           ) : (
             <div className="space-y-4">
-              {entries.map((entry, i) => (
-                <LogisticRow
-                  key={entry.party.id}
-                  entry={entry}
-                  allUsers={allUsers}
-                  index={i}
-                  onSave={() => toast(`Logistica "${entry.party.nome}" salvata`, "success")}
-                  onRefresh={() => loadData(selectedDate, true)}
-                  toast={toast}
-                />
-              ))}
+              {entries.map((entry, i) => {
+                const extId = normalizeId(entry.party.external_id);
+                return (
+                  <LogisticRow
+                    key={entry.party.id}
+                    entry={entry}
+                    allUsers={allUsers}
+                    allVeicoli={allVeicoli}
+                    index={i}
+                    onSave={() => toast(`Logistica salvata`, "success")}
+                    onRefresh={() => loadData(selectedDate, true)}
+                    toast={toast}
+                    movidaAnimatori={movidaMap[extId] || []}
+                  />
+                )
+              })}
             </div>
           )}
+
+          {/* GESTORE CRUD MEZZI CUSTOM */}
+          <div className="mt-8 pt-6 border-t border-border bg-card p-5 rounded-2xl shadow-sm">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+              <div>
+                <h4 className="text-sm font-semibold flex items-center gap-2 text-foreground"><Truck className="w-4 h-4 text-primary"/> Gestione Mezzi Extra</h4>
+                <p className="text-xs text-muted-foreground mt-0.5">Veicoli aggiunti salvati nel browser locale.</p>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <input type="text" value={newVehicleName} onChange={e => setNewVehicleName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCustomVehicle()} placeholder="Es. Ducato Bianco" className="px-3 py-2 border border-input rounded-xl text-sm w-full sm:w-48 bg-surface focus:outline-none focus:ring-2 focus:ring-primary"/>
+                <button onClick={addCustomVehicle} disabled={!newVehicleName.trim()} className="p-2 bg-foreground text-background rounded-xl disabled:opacity-50 hover:opacity-90 transition-opacity">
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {customVehicles.length > 0 ? (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {customVehicles.map((v, i) => (
+                  <div key={i} className="group flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-surface text-sm transition-all hover:border-primary/30">
+                    {editingVehicleIdx === i ? (
+                      <input type="text" autoFocus value={editVehicleValue} onChange={(e) => setEditVehicleValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && saveEditedVehicle()} onBlur={saveEditedVehicle} className="bg-transparent border-none p-0 focus:ring-0 text-sm w-24 outline-none font-medium" />
+                    ) : (
+                      <span className="font-medium text-foreground">{vLabel(v)}</span>
+                    )}
+                    
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => startEditingVehicle(i)} className="p-1 text-muted-foreground hover:text-primary transition-colors rounded-md" title="Modifica">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => deleteCustomVehicle(i)} className="p-1 text-muted-foreground hover:text-red-500 transition-colors rounded-md" title="Elimina">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground/60 italic mt-2">Nessun veicolo extra aggiunto. Usa il form qui sopra.</div>
+            )}
+          </div>
 
         </motion.div>
       </main>

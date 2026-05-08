@@ -273,9 +273,9 @@ function ShelfCard({ shelf, index }) {
       <div className="p-5">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex flex-col items-center justify-center shrink-0 border border-primary/20">
-              <span className="text-xs font-bold text-primary/70 leading-none">#</span>
-              <span className="text-lg font-black text-primary leading-none">{shelfLabel || shelfId}</span>
+            <div className="w-12 h-12 rounded-xl bg-green-100 flex flex-col items-center justify-center shrink-0 border border-green-200">
+              <span className="text-xs font-bold text-green-600/70 leading-none">#</span>
+              <span className="text-lg font-black text-green-700 leading-none">{shelfLabel || shelfId}</span>
             </div>
             <div>
               <h3 className="text-base font-bold text-foreground leading-tight">{party.nome}</h3>
@@ -287,7 +287,7 @@ function ShelfCard({ shelf, index }) {
           <div className="flex items-center gap-2 shrink-0">
             <StatusBadge stato={party.stato} />
             <Link href={`/check/${shelfId}`}>
-              <button className="p-2 rounded-xl border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors" title="Vai al Check">
+              <button className="p-2 rounded-xl border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors" title="Vai al Check">
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             </Link>
@@ -319,7 +319,7 @@ function ShelfCard({ shelf, index }) {
             <button onClick={() => setMaterialExpanded((v) => !v)}
               className="w-full flex items-center justify-between px-4 py-2.5 bg-surface hover:bg-surface/80 transition-colors text-left">
               <div className="flex items-center gap-2">
-                <Package className="w-3.5 h-3.5 text-primary" />
+                <Package className="w-3.5 h-3.5 text-green-600" />
                 <span className="text-xs font-semibold text-foreground">Materiale ({material.length} macro)</span>
               </div>
               <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${materialExpanded ? "rotate-180" : ""}`} />
