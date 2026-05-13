@@ -408,7 +408,7 @@ Scannerizza i singoli oggetti della categoria "${category.name}".`);
   };
 
   // --- SUBMIT CHECK ---
-  const handleSubmitCheck = async () => {
+ const handleSubmitCheck = async () => {
     if (!partyData || !currentUser || !shelfId) return;
     if (!isAllItemsChecked() && !materialSmarrito) {
       alert("Devi scansionare tutti gli elementi o spuntare 'materiale smarrito' per procedere.");
@@ -417,11 +417,65 @@ Scannerizza i singoli oggetti della categoria "${category.name}".`);
     setIsSubmitting(true);
     try {
       const uncheckedItemIds = materialSmarrito ? getUncheckedItemIds() : [];
+
+      // 1. ASSEMBLA I RISULTATI DI TUTTI GLI ELEMENTI DEL CHECK
+      const itemsResults = [];
+      materialData.forEach((macro) => {
+        macro.categories.forEach((category) => {
+          if (!category.items || category.items.length === 0) {
+            // Categoria che funge da elemento singolo
+            const isChecked = !!checkedItems[`${macro.id}-${category.id}`];
+            const reportInfo = getReportInfo(category.id);
+            
+            let stato = isChecked ? 'ok' : 'mancante';
+            if (!isChecked && reportInfo) stato = reportInfo.tipo; // danneggiato o rubato
+            else if (!isChecked && category.materiale_mancante) stato = 'mancante';
+
+            itemsResults.push({
+              inventory_id: category.id,
+              quantita_prevista: 1,
+              quantita_trovata: isChecked ? 1 : 0,
+              stato: stato,
+              note: ""
+            });
+          } else {
+            // Sotto-elementi della categoria
+            category.items.forEach((item) => {
+              const isChecked = !!checkedItems[`${macro.id}-${category.id}-${item.id}`];
+              const reportInfo = getReportInfo(item.id);
+              
+              let stato = isChecked ? 'ok' : 'mancante';
+              if (!isChecked && reportInfo) stato = reportInfo.tipo;
+              else if (!isChecked && item.materiale_mancante) stato = 'mancante';
+
+              itemsResults.push({
+                inventory_id: item.id,
+                quantita_prevista: 1,
+                quantita_trovata: isChecked ? 1 : 0,
+                stato: stato,
+                note: ""
+              });
+            });
+          }
+        });
+      });
+
+      // 2. INVIA TUTTO AL DATABASE (compreso il nuovo array itemsResults)
       const result = await submitCheck(
-        partyData.id, currentUser.id, currentUser.ruolo, checkType, shelfId,
-        getCheckedCount(), getTotalItems(), currentUser.nome, partyData.nome,
-        materialSmarrito, uncheckedItemIds
+        partyData.id, 
+        currentUser.id, 
+        currentUser.ruolo, 
+        checkType, 
+        shelfId,
+        getCheckedCount(), 
+        getTotalItems(), 
+        currentUser.nome, 
+        partyData.nome,
+        materialSmarrito, 
+        uncheckedItemIds,
+        itemsResults // <--- IL NUOVO PARAMETRO
       );
+      
       if (result.error) { alert(`Errore: ${result.error}`); return; }
 
       const snapshot = buildCheckedSnapshot();
@@ -439,6 +493,7 @@ Scannerizza i singoli oggetti della categoria "${category.name}".`);
       mutate();
       setLossPhase("reporting");
     } catch (error) {
+      console.error(error);
       alert("Errore durante l'invio del check. Riprova.");
     } finally {
       setIsSubmitting(false);

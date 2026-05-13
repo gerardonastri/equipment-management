@@ -405,3 +405,82 @@ export async function updatePrefixForMacroAndChildren(macroId, oldPrefix, newPre
   revalidatePath("/admin/inventory");
   return { success: true, updated };
 }
+
+/**
+ * Aggiunge manualmente una segnalazione di danneggiamento/furto dall'inventario.
+ */
+export async function addManualLoss(inventoryId, tipo) {
+  try {
+    const supabase = await createClient();
+
+    const { error } = await supabase.from("inventory_losses").insert({
+      inventory_id: inventoryId,
+      tipo: tipo,
+      note: "Impostato manualmente da gestione inventario",
+      resolved: false,
+    });
+
+    if (error) throw error;
+
+    revalidatePath("/admin/inventory");
+    return { success: true };
+  } catch (error) {
+    console.error("[v0] Error adding manual loss:", error);
+    return { error: error.message };
+  }
+}
+
+export async function duplicateSimpleItem(itemId, newName) {
+  const supabase = await createClient();
+
+  const { data: original, error: fetchErr } = await supabase
+    .from("inventory_items")
+    .select("*")
+    .eq("id", itemId)
+    .single();
+
+  if (fetchErr || !original) return { error: "Elemento non trovato." };
+
+  // Inserisci la copia dell'item
+  const { data: newItem, error: insertErr } = await supabase
+    .from("inventory_items")
+    .insert([{
+      name:               newName,
+      type:               original.type,
+      parent_id:          original.parent_id,
+      materiale_mancante: false,
+      image_url:          original.image_url || null,
+    }])
+    .select()
+    .single();
+
+  if (insertErr) return { error: insertErr.message };
+
+  // Se è una categoria, duplica anche tutti i sotto
+  if (original.type === "categoria") {
+    const { data: subs } = await supabase
+      .from("inventory_items")
+      .select("*")
+      .eq("parent_id", itemId)
+      .eq("type", "sotto")
+      .order("name");
+
+    if (subs?.length) {
+      // Applica lo stesso suffix che è stato usato sul nome della categoria
+      const originalBase = original.name;
+      const suffix = newName.slice(originalBase.length) || " copia";
+
+      const subInserts = subs.map((sub) => ({
+        name:               sub.name + suffix,
+        type:               "sotto",
+        parent_id:          newItem.id,
+        materiale_mancante: false,
+        image_url:          sub.image_url || null,
+      }));
+      await supabase.from("inventory_items").insert(subInserts);
+    }
+  }
+
+  revalidatePath("/admin/inventory");
+  return { success: true, newId: newItem.id };
+}

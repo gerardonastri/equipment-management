@@ -23,7 +23,7 @@ export async function getLogisticsByDate(date) {
       magazziniere:magazziniere_id(id, nome)
     `)
     .eq("data", date)
-    .neq("stato", "scaricato_scaffale")
+    // Rimosso il filtro ".neq('stato', 'scaricato_scaffale')" per mostrare tutto
     .order("ora_inizio", { ascending: true, nullsFirst: false });
 
   if (partiesError) {
@@ -68,10 +68,10 @@ export async function getLogisticsUsers() {
 export async function saveLogistics(partyId, logisticsData) {
   const supabase = await createServerClient();
 
-  // Modificato per accettare array di driver (drivers_andata_ids, drivers_ritorno_ids)
   const payload = {
     party_id: partyId,
     staff_ids: logisticsData.staff_ids || [],
+    responsabili_ids: logisticsData.responsabili_ids || [], // <-- AGGIUNTO
     veicoli_andata: logisticsData.veicoli_andata || [],
     drivers_andata_ids: logisticsData.drivers_andata_ids || [],
     veicoli_ritorno: logisticsData.veicoli_ritorno || [],
@@ -97,7 +97,6 @@ export async function saveLogistics(partyId, logisticsData) {
   revalidatePath("/admin/logistics");
   return { success: true };
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ANIMATORI DA API MOVIDA
 // ─────────────────────────────────────────────────────────────────────────────

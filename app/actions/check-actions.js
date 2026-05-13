@@ -648,7 +648,8 @@ export async function submitCheck(
   userName,
   partyName,
   materialSmarrito = false,
-  itemsToMarkMissing = []
+  itemsToMarkMissing = [],
+  itemsResults = [] // <--- AGGIUNTO PARAMETRO
 ) {
   try {
     const supabase = await createClient();
@@ -703,7 +704,7 @@ export async function submitCheck(
 
     const { data: currentParty } = await supabase
       .from("parties")
-      .select("animatore_id, magazziniere_id")
+      .select("animatore_id, magazziniere_id, luogo")
       .eq("id", partyId)
       .single();
 
@@ -741,6 +742,7 @@ export async function submitCheck(
       }
     }
 
+    // 1. CREAZIONE DEL CHECK PRINCIPALE
     const { data: insertedCheck, error: insertError } = await supabase
       .from("checks")
       .insert({
@@ -754,6 +756,28 @@ export async function submitCheck(
       .single();
 
     if (insertError) throw insertError;
+
+    // 2. SALVATAGGIO DEI DETTAGLI MATERIALE NELLA TABELLA CHECK_ITEMS
+    if (itemsResults && itemsResults.length > 0) {
+      const checkItemsRows = itemsResults.map((item) => ({
+        check_id: insertedCheck.id,
+        inventory_id: item.inventory_id,
+        quantita_prevista: item.quantita_prevista || 1,
+        quantita_trovata: item.quantita_trovata || 0,
+        stato: item.stato || 'ok',
+        note: item.note || null
+      }));
+
+      const { error: itemsError } = await supabase
+        .from("check_items")
+        .insert(checkItemsRows);
+
+      if (itemsError) {
+        console.error("[v0] Errore salvataggio righe check_items:", itemsError);
+      } else {
+        console.log(`[v0] Salvate ${checkItemsRows.length} righe in check_items`);
+      }
+    }
 
     let newStatus = null;
     if (checkType === "deposito_scaffale") newStatus = "caricato_scaffale";
@@ -797,7 +821,7 @@ export async function submitCheck(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `${materialSmarrito ? "⚠️" : "✅"} Check completato!\n\nFesta: ${partyName}\nScaffale: ${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""}`,
+          message: `${materialSmarrito ? "⚠️" : "✅"} Check completato!\n\nFesta: ${partyName}\nLocation: ${currentParty?.luogo || "N/D"}\nScaffale: ${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""}`,
         }),
       });
       console.log("[v0] Telegram notification sent successfully");
@@ -806,9 +830,6 @@ export async function submitCheck(
     }
 
     // ── Logica Handoff ──────────────────────────────────────────────────────
-    // Se questa festa ha un handoff attivo e stiamo completando lo scarico furgone (furgone_scaffale),
-    // creiamo automaticamente il check deposito_scaffale per la festa destinazione
-    // sulle macro handoff — così il magazziniere non deve fare il check iniziale.
     if (checkType === "furgone_scaffale") {
       const { data: currentPartyFull } = await supabase
         .from("parties")
@@ -820,7 +841,6 @@ export async function submitCheck(
         const destPartyId = currentPartyFull.handoff_to_party_id;
         console.log("[v0] Handoff attivo: creazione check automatici per festa", destPartyId);
 
-        // Crea deposito_scaffale sintetico per la festa destinazione (se non esiste)
         const { data: existingDestCheck } = await supabase
           .from("checks")
           .select("id")
@@ -837,7 +857,6 @@ export async function submitCheck(
             materiale_smarrito: false,
           });
 
-          // Aggiorna stato festa destinazione a caricato_scaffale
           await supabase
             .from("parties")
             .update({ stato: "caricato_scaffale" })
@@ -848,9 +867,6 @@ export async function submitCheck(
       }
     }
 
-    // Se stiamo completando lo scarico scaffale (scaffale_deposito) con handoff attivo,
-    // il check scaffale_deposito sulle macro handoff è già gestito dall'animatore —
-    // lo creiamo sinteticamente per non bloccare il flusso del magazziniere.
     if (checkType === "furgone_scaffale") {
       const { data: srcParties } = await supabase
         .from("parties")
@@ -861,8 +877,6 @@ export async function submitCheck(
       if (srcParties?.length) {
         for (const srcParty of srcParties) {
           if (!srcParty.handoff_macro_ids?.length) continue;
-          // La festa sorgente non deve fare scaffale_deposito per le macro in handoff.
-          // Creiamo il check sintetico scaffale_deposito solo se non esiste già.
           const { data: existingSrc } = await supabase
             .from("checks")
             .select("id")

@@ -7,7 +7,7 @@ import {
   RefreshCw, CalendarDays, Check, X, Save,
   RotateCcw, Loader2, CheckCheck, TriangleAlert,
   Info, Printer, ArrowRight, ArrowLeft, Plus, ChevronDown,
-  Pencil, Trash2
+  Pencil, Trash2, ClipboardCheck 
 } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { getLogisticsByDate, getLogisticsUsers, saveLogistics, getMovidaAnimatoriForDate } from "./actions";
@@ -139,12 +139,12 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
   }, [movidaAnimatori, allUsers]);
 
   const buildForm = useCallback((l) => {
-    // Unisci gli ID salvati nel DB con quelli trovati dal matching automatico in background
     const savedStaff = (l?.staff_ids || []).map(String);
     const mergedStaff = Array.from(new Set([...savedStaff, ...matchedStaffIds]));
 
     return {
       staff_ids:           mergedStaff,
+      responsabili_ids:    (l?.responsabili_ids || []).map(String),
       drivers_andata_ids:  l?.drivers_andata_ids  || (l?.driver_andata_id ? [l.driver_andata_id] : []),
       veicoli_andata:      l?.veicoli_andata      || [],
       drivers_ritorno_ids: l?.drivers_ritorno_ids || (l?.driver_ritorno_id ? [l.driver_ritorno_id] : []),
@@ -194,7 +194,7 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
         : "border-border"
       }`}>
 
-      {/* Header festa - Ora pulito senza la sezione animatori separata */}
+      {/* Header festa */}
       <div className="px-5 py-3.5 border-b border-border bg-surface/40">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -203,6 +203,11 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
               <h3 className="font-bold text-foreground text-sm leading-tight">{party.nome}</h3>
               {party.cliente && (
                 <span className="text-xs text-muted-foreground bg-surface border border-border px-2 py-0.5 rounded-full">{party.cliente}</span>
+              )}
+              {party.stato === "scaricato_scaffale" && (
+                <span className="text-[10px] uppercase tracking-wider font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <CheckCheck className="w-3 h-3" /> Completata
+                </span>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground pl-7">
@@ -250,12 +255,28 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
 
       {/* Campi logistica */}
       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Staff (Ora funge da hub unico per Animatori+Staff Extra) */}
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1">
-            <Users className="w-3 h-3" />Staff
-          </label>
-          <UserSelector allUsers={allUsers} selectedIds={form.staff_ids} onChange={(ids) => update("staff_ids", ids)} />
+        
+        {/* Staff & Responsabili */}
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1">
+              <Users className="w-3 h-3" />Staff Generico
+            </label>
+            <UserSelector allUsers={allUsers} selectedIds={form.staff_ids} onChange={(ids) => update("staff_ids", ids)} />
+          </div>
+          
+          <div className="pt-3 border-t border-border/50">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1 text-purple-700">
+              <ClipboardCheck className="w-3 h-3" />Responsabili Check
+            </label>
+            <UserSelector 
+              allUsers={allUsers} 
+              selectedIds={form.responsabili_ids} 
+              onChange={(ids) => update("responsabili_ids", ids)} 
+              placeholder="Seleziona animatori..." 
+              colorClass="bg-purple-100 text-purple-700 border-purple-300" 
+            />
+          </div>
         </div>
 
         {/* Andata */}
