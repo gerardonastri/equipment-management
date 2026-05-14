@@ -19,6 +19,7 @@ import {
   Calendar,
   ChevronDown,
   TriangleAlert,
+  Truck,
 } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { supabase } from "@/lib/supabase/client";
@@ -54,6 +55,26 @@ const ROLES = [
     border: "border-green-200",
     avatarBg: "bg-green-500",
     tabActive: "bg-green-500 text-white border-green-500",
+  },
+  {
+    value: "responsabile",
+    label: "Responsabile",
+    icon: Users,
+    color: "text-purple-600",
+    bg: "bg-purple-100",
+    border: "border-purple-200",
+    avatarBg: "bg-purple-500",
+    tabActive: "bg-purple-500 text-white border-purple-500",
+  },
+  {
+    value: "driver",
+    label: "Driver",
+    icon: Truck,
+    color: "text-sky-600",
+    bg: "bg-sky-100",
+    border: "border-sky-200",
+    avatarBg: "bg-sky-500",
+    tabActive: "bg-sky-500 text-white border-sky-500",
   },
 ];
 
@@ -380,7 +401,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all"); // "all" | "amministratore" | "magazziniere" | "animatore"
+  const [roleFilter, setRoleFilter] = useState("all"); // "all" | "amministratore" | "magazziniere" | "animatore" | "responsabile" | "driver"
 
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState(null);
@@ -547,7 +568,7 @@ export default function UsersPage() {
 
           {/* ── Stats card mini ── */}
           {!loading && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
                 { label: "Totale", value: users.length, icon: Users, cls: "text-primary bg-primary/10" },
                 ...ROLES.map((r) => ({ label: r.label, value: countByRole[r.value] || 0, icon: r.icon, cls: `${r.color} ${r.bg}` })),

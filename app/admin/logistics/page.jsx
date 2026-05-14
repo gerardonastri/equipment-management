@@ -7,7 +7,7 @@ import {
   RefreshCw, CalendarDays, Check, X, Save,
   RotateCcw, Loader2, CheckCheck, TriangleAlert,
   Info, Printer, ArrowRight, ArrowLeft, Plus, ChevronDown,
-  Pencil, Trash2, ClipboardCheck 
+  Pencil, Trash2, ClipboardCheck, Search
 } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { getLogisticsByDate, getLogisticsUsers, saveLogistics, getMovidaAnimatoriForDate } from "./actions";
@@ -441,6 +441,7 @@ export default function LogisticsPage() {
   const [refreshing, setRefreshing]     = useState(false);
   const [movidaMap, setMovidaMap]       = useState({});
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
+  const [searchTerm, setSearchTerm]       = useState("");
   
   // Custom Vehicles State
   const [customVehicles, setCustomVehicles] = useState([]);
@@ -531,6 +532,37 @@ export default function LogisticsPage() {
   const filled  = entries.filter((e) => (e.logistics?.drivers_andata_ids?.length > 0) || (e.logistics?.veicoli_andata?.length > 0)).length;
   const missing = entries.length - filled;
 
+  // ── Ricerca ─────────────────────────────────────────────────────────────────
+  const filteredEntries = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter((e) => {
+      const { party, logistics: l } = e;
+      // Campi della festa
+      if (party.nome?.toLowerCase().includes(q))   return true;
+      if (party.luogo?.toLowerCase().includes(q))  return true;
+      if (party.cliente?.toLowerCase().includes(q)) return true;
+      // Animatore principale e magazziniere
+      if (party.animatore?.nome?.toLowerCase().includes(q))    return true;
+      if (party.magazziniere?.nome?.toLowerCase().includes(q)) return true;
+      // Staff, driver, responsabili dal form logistica (confronto su allUsers)
+      const userIds = [
+        ...(l?.staff_ids || []),
+        ...(l?.responsabili_ids || []),
+        ...(l?.drivers_andata_ids || []),
+        ...(l?.drivers_ritorno_ids || []),
+      ];
+      if (userIds.some((id) => {
+        const u = allUsers.find((u) => String(u.id) === String(id));
+        return u?.nome?.toLowerCase().includes(q);
+      })) return true;
+      // Mezzi (andata + ritorno)
+      const mezzi = [...(l?.veicoli_andata || []), ...(l?.veicoli_ritorno || [])];
+      if (mezzi.some((v) => v.toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [entries, searchTerm, allUsers]);
+
   return (
     <div className="min-h-screen bg-surface pb-20">
       <Navbar />
@@ -546,7 +578,9 @@ export default function LogisticsPage() {
               <h1 className="text-3xl font-black text-foreground">Logistica</h1>
               <p className="text-muted-foreground mt-0.5 text-sm">
                 {loading ? "Caricamento…"
-                  : `${entries.length} fest${entries.length === 1 ? "a" : "e"} · ${filled} configurate · ${missing} da completare`}
+                  : searchTerm
+                    ? `${filteredEntries.length} di ${entries.length} fest${entries.length === 1 ? "a" : "e"}`
+                    : `${entries.length} fest${entries.length === 1 ? "a" : "e"} · ${filled} configurate · ${missing} da completare`}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -587,6 +621,28 @@ export default function LogisticsPage() {
             </div>
           </div>
 
+          {/* Ricerca */}
+          {!loading && entries.length > 0 && (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Cerca per festa, location, animatore, driver, mezzo..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-10 py-2.5 border border-input rounded-xl focus:outline-none focus:ring-2 focus:ring-ring text-sm bg-card shadow-sm"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Lista Feste */}
           {loading ? (
             <div className="space-y-4">
@@ -605,9 +661,20 @@ export default function LogisticsPage() {
               <p className="font-medium text-foreground">Nessuna festa per questa data</p>
               <p className="text-sm text-muted-foreground mt-1">Prova un giorno diverso o sincronizza dalla pagina Feste</p>
             </motion.div>
+          ) : filteredEntries.length === 0 ? (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
+              <div className="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center mx-auto mb-3">
+                <Search className="w-7 h-7 text-muted-foreground opacity-30" />
+              </div>
+              <p className="font-medium text-foreground">Nessun risultato per "{searchTerm}"</p>
+              <p className="text-sm text-muted-foreground mt-1">Prova a cercare per nome festa, luogo, animatore, driver o mezzo</p>
+              <button onClick={() => setSearchTerm("")} className="mt-4 px-4 py-2 rounded-xl border border-border bg-card text-sm font-medium text-muted-foreground hover:bg-surface transition-colors">
+                Rimuovi filtro
+              </button>
+            </motion.div>
           ) : (
             <div className="space-y-4">
-              {entries.map((entry, i) => {
+              {filteredEntries.map((entry, i) => {
                 const extId = normalizeId(entry.party.external_id);
                 return (
                   <LogisticRow
