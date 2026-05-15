@@ -7,7 +7,7 @@ import {
   RefreshCw, CalendarDays, Check, X, Save,
   RotateCcw, Loader2, CheckCheck, TriangleAlert,
   Info, Printer, ArrowRight, ArrowLeft, Plus, ChevronDown,
-  Pencil, Trash2, ClipboardCheck, Search
+  Pencil, Trash2, ClipboardCheck 
 } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { getLogisticsByDate, getLogisticsUsers, saveLogistics, getMovidaAnimatoriForDate } from "./actions";
@@ -337,90 +337,194 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
 }
 
 // ─── Motore di Stampa ─────────────────────────────────────────────────────────
+
+// Accenti cromatici per veicoli: usati solo come dot (●), mai come background
+const VEICOLO_ACCENT = {
+  "cubo":         "#64748b",
+  "blu":          "#2563eb",
+  "granata":      "#dc2626",
+  "grigio":       "#9ca3af",
+  "scudo":        "#4f46e5",
+  "noleggio 1":   "#0d9488",
+  "noleggio 2":   "#0891b2",
+  "auto propria": "#d97706",
+};
+const defaultAccent = "#94a3b8";
+
+const vLabelPrint = (v) =>
+  ({ "noleggio 1": "Noleggio 1", "noleggio 2": "Noleggio 2", "auto propria": "Auto Propria" }[v] ||
+  v.charAt(0).toUpperCase() + v.slice(1));
+
+function vChip(v) {
+  const color = VEICOLO_ACCENT[v] || defaultAccent;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:9.5px;color:#111;margin:0 10px 3px 0;white-space:nowrap">` +
+    `<span style="width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>` +
+    `${vLabelPrint(v)}</span>`;
+}
+
+function nameTag(name, dotColor = "#9ca3af") {
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:9.5px;color:#111;margin:0 10px 3px 0;white-space:nowrap">` +
+    `<span style="width:5px;height:5px;border-radius:50%;background:${dotColor};flex-shrink:0;display:inline-block"></span>` +
+    `${name}</span>`;
+}
+
+function colLabel(text, color = "#9ca3af") {
+  return `<div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${color};margin-bottom:5px">${text}</div>`;
+}
+
+const EMPTY = `<span style="color:#d1d5db;font-size:9px">—</span>`;
+
+function buildPartyCard(entry, index, getName) {
+  const { party, logistics: l } = entry;
+  const staffNames = (l?.staff_ids || []).map(getName).filter(n => n !== "—");
+  const respNames  = (l?.responsabili_ids || []).map(getName).filter(n => n !== "—");
+  const driversA   = (l?.drivers_andata_ids || []).map(getName).filter(n => n !== "—");
+  const driversR   = l?.solo_andata ? [] : (l?.drivers_ritorno_ids || []).map(getName).filter(n => n !== "—");
+  const mezziA     = l?.veicoli_andata || [];
+  const mezziR     = l?.solo_andata ? [] : (l?.veicoli_ritorno || []);
+  const configured = driversA.length > 0 || mezziA.length > 0;
+  const soloA      = !!l?.solo_andata;
+  const barColor   = configured ? "#111" : "#e5e7eb";
+
+  return `
+<div style="display:flex;margin-bottom:9px;page-break-inside:avoid;background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
+  <div style="width:3px;background:${barColor};flex-shrink:0"></div>
+  <div style="flex:1;min-width:0">
+    <div style="padding:8px 12px;border-bottom:1px solid #f3f4f6;display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:9px;min-width:0">
+        <span style="font-size:9px;font-weight:700;color:#d1d5db;flex-shrink:0;width:16px;text-align:right">${index + 1}</span>
+        <div style="min-width:0">
+          <span style="font-size:12px;font-weight:700;color:#111">${party.nome}</span>
+          <span style="font-size:9.5px;color:#9ca3af;margin-left:8px">${party.luogo}${party.cliente ? ` · ${party.cliente}` : ""}</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;flex-shrink:0;font-size:9.5px;color:#6b7280">
+        ${party.ora_inizio   ? `<span><strong style="color:#111;font-weight:700">${party.ora_inizio}</strong> festa</span>` : ""}
+        ${l?.start_logistica ? `<span><strong style="color:#111;font-weight:700">${l.start_logistica}</strong> start</span>` : ""}
+        ${soloA              ? `<span style="color:#9ca3af;font-size:8.5px;font-weight:600">Solo andata</span>` : ""}
+        ${!configured        ? `<span style="color:#d1d5db;font-size:8.5px;font-weight:600">Da configurare</span>` : ""}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0;padding:8px 12px 8px 28px">
+      <div style="padding-right:12px;border-right:1px solid #f3f4f6">
+        ${colLabel("Staff")}
+        <div style="line-height:1.9">${staffNames.length ? staffNames.map(n => nameTag(n)).join("") : EMPTY}</div>
+        ${respNames.length ? `<div style="margin-top:7px">${colLabel("Responsabili", "#7c3aed")}<div style="line-height:1.9">${respNames.map(n => nameTag(n, "#7c3aed")).join("")}</div></div>` : ""}
+      </div>
+      <div style="padding:0 12px;border-right:1px solid #f3f4f6">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#111;margin-bottom:5px">→ Andata</div>
+        ${colLabel("Driver")}
+        <div style="line-height:1.9;margin-bottom:6px">${driversA.length ? driversA.map(n => nameTag(n, "#111")).join("") : EMPTY}</div>
+        ${colLabel("Mezzi")}
+        <div style="line-height:1.9">${mezziA.length ? mezziA.map(vChip).join("") : EMPTY}</div>
+      </div>
+      <div style="padding:0 12px;border-right:1px solid #f3f4f6">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${soloA ? "#d1d5db" : "#111"};margin-bottom:5px">← Ritorno</div>
+        ${soloA
+          ? `<div style="font-size:9px;color:#d1d5db;margin-top:2px">Solo andata</div>`
+          : `${colLabel("Driver")}<div style="line-height:1.9;margin-bottom:6px">${driversR.length ? driversR.map(n => nameTag(n, "#111")).join("") : EMPTY}</div>${colLabel("Mezzi")}<div style="line-height:1.9">${mezziR.length ? mezziR.map(vChip).join("") : EMPTY}</div>`
+        }
+      </div>
+      <div style="padding-left:12px">
+        ${colLabel("Note")}
+        ${l?.note ? `<div style="font-size:9.5px;color:#374151;line-height:1.6">${l.note}</div>` : EMPTY}
+      </div>
+    </div>
+  </div>
+</div>`;
+}
+
 function generateHtmlReport(title, dateStr, contentHtml) {
   return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
 <title>${title} — ${dateStr}</title>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:11px;color:#111;padding:24px}
-  h1{font-size:16px;font-weight:800;margin-bottom:2px}.sub{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.05em;margin-bottom:20px}
-  h2{font-size:13px;font-weight:700;margin-top:24px;margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid #eaeaea;color:#333}
-  table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  thead tr{background:#111;color:#fff}
-  thead th{padding:8px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
-  tbody tr{border-bottom:1px solid #eaeaea}
-  tbody tr:nth-child(even){background:#fafafa}
-  td{padding:8px;vertical-align:top}
-  .chip{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:600;margin:1px}
-  .footer{margin-top:24px;font-size:9px;color:#999;text-align:center}
-  @media print{body{padding:0}@page{margin:10mm}}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,sans-serif;font-size:11px;color:#111;background:#fff;padding:28px 32px}
+  .ph{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid #111}
+  .ph h1{font-size:17px;font-weight:800;color:#111;letter-spacing:-.4px}
+  .ph .sub{font-size:9px;color:#9ca3af;text-transform:uppercase;letter-spacing:.1em;margin-top:3px;font-weight:500}
+  .ph .meta{font-size:9px;color:#9ca3af;text-align:right;line-height:1.7}
+  .sd{display:flex;align-items:center;gap:10px;margin:16px 0 8px}
+  .sd .lbl{font-size:10px;font-weight:700;color:#111;white-space:nowrap;display:flex;align-items:center;gap:6px}
+  .sd .ln{flex:1;height:1px;background:#e5e7eb}
+  .sd .ct{font-size:8.5px;color:#9ca3af;white-space:nowrap}
+  .ft{margin-top:22px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:8.5px;color:#9ca3af;display:flex;justify-content:space-between}
+  @media print{body{padding:10mm 12mm}@page{margin:0;size:A4}}
 </style>
 </head><body>
-<h1>${title.toUpperCase()} — ${dateStr.toUpperCase()}</h1>
-<div class="sub">Prospetto operativo · Movida Manager</div>
+<div class="ph">
+  <div><h1>${title}</h1><div class="sub">${dateStr}</div></div>
+  <div class="meta">Movida Manager<br>${new Date().toLocaleString("it-IT",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+</div>
 ${contentHtml}
-<div class="footer">Stampato il ${new Date().toLocaleString("it-IT")}</div>
+<div class="ft"><span>Movida Manager — Prospetto Operativo</span><span>Stampato il ${new Date().toLocaleString("it-IT")}</span></div>
 </body></html>`;
 }
 
-function handlePrint({ entries, allUsers, allVeicoli, date, type }) {
+function handlePrint({ entries, allUsers, allVeicoli, movidaMap, date, type }) {
   const dateStr = new Date(date + "T00:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const getName  = (id) => allUsers.find((u) => String(u.id) === String(id))?.nome || "—";
-  const getNames = (ids) => (ids || []).map(getName).join(", ") || "—";
+  const getName = (id) => allUsers.find((u) => String(u.id) === String(id))?.nome || "—";
 
-  const buildRow = (e, i) => {
-    const { party, logistics: l } = e;
-    
-    return `<tr>
-      <td style="font-weight:bold;color:#888;text-align:center">${i + 1}</td>
-      <td><strong>${party.luogo}</strong><br><span style="font-size:9px;color:#666">${party.nome}</span></td>
-      <td><strong>${party.ora_inizio || "—"}</strong></td>
-      <td>${l?.start_logistica || "—"}</td>
-      <td>${getNames(l?.staff_ids)}</td>
-      <td><strong style="color:#166534">A:</strong> ${getNames(l?.drivers_andata_ids)}<br><span style="font-size:9px">${(l?.veicoli_andata||[]).join(", ")}</span></td>
-      <td><strong style="color:#1e40af">R:</strong> ${l?.solo_andata ? '<i>Solo andata</i>' : getNames(l?.drivers_ritorno_ids)}<br><span style="font-size:9px">${l?.solo_andata ? '' : (l?.veicoli_ritorno||[]).join(", ")}</span></td>
-      <td style="font-size:9px;color:#666">${l?.note || ""}</td>
-    </tr>`;
-  };
-
-  const tableHeader = `<table><thead><tr><th>#</th><th>Location / Festa</th><th>Ora Festa</th><th>Start Log.</th><th>Staff</th><th>Andata</th><th>Ritorno</th><th>Note</th></tr></thead><tbody>`;
+  // ── Ricostruisce lo stesso merge che fa buildForm nel LogisticRow ──────────
+  // Lo staff auto-matched da Movida potrebbe non essere ancora salvato nel DB,
+  // quindi va ricalcolato qui prima di stampare, esattamente come fa il form.
+  const enrichedEntries = entries.map((entry) => {
+    const { party, logistics: l } = entry;
+    const extId = normalizeId(party.external_id);
+    const movidaAnimatori = movidaMap?.[extId] || [];
+    const movidaNames = movidaAnimatori.map(a => normalizeId(a.denominazione));
+    const matchedIds = allUsers
+      .filter(u => movidaNames.includes(normalizeId(u.nome)))
+      .map(u => String(u.id));
+    const savedStaff = (l?.staff_ids || []).map(String);
+    const mergedStaff = Array.from(new Set([...savedStaff, ...matchedIds]));
+    return {
+      ...entry,
+      logistics: l ? { ...l, staff_ids: mergedStaff } : { staff_ids: mergedStaff },
+    };
+  });
 
   let contentHtml = "";
   let title = "Logistica Giornaliera";
 
   if (type === "daily") {
-    contentHtml = tableHeader + entries.map((e, i) => buildRow(e, i)).join("") + `</tbody></table>`;
-  } 
+    contentHtml = enrichedEntries.map((e, i) => buildPartyCard(e, i, getName)).join("");
+  }
   else if (type === "driver") {
     title = "Logistica per Driver";
     const driverIds = new Set();
-    entries.forEach(e => {
-      (e.logistics?.drivers_andata_ids || []).forEach(id => driverIds.add(String(id)));
+    enrichedEntries.forEach(e => {
+      (e.logistics?.drivers_andata_ids  || []).forEach(id => driverIds.add(String(id)));
       (e.logistics?.drivers_ritorno_ids || []).forEach(id => driverIds.add(String(id)));
     });
-
     Array.from(driverIds).forEach(id => {
-      const driverName = getName(id);
-      const driverEntries = entries.filter(e => 
-        (e.logistics?.drivers_andata_ids || []).includes(String(id)) || 
-        (e.logistics?.drivers_ritorno_ids || []).includes(String(id))
+      const name = getName(id);
+      const sub  = enrichedEntries.filter(e =>
+        (e.logistics?.drivers_andata_ids  || []).map(String).includes(id) ||
+        (e.logistics?.drivers_ritorno_ids || []).map(String).includes(id)
       );
-      contentHtml += `<h2>Driver: ${driverName.toUpperCase()}</h2>${tableHeader}${driverEntries.map((e, i) => buildRow(e, i)).join("")}</tbody></table>`;
+      contentHtml +=
+        `<div class="sd"><span class="lbl">${name}</span><div class="ln"></div><span class="ct">${sub.length} fest${sub.length === 1 ? "a" : "e"}</span></div>` +
+        sub.map((e, i) => buildPartyCard(e, i, getName)).join("");
     });
-  } 
+  }
   else if (type === "vehicle") {
     title = "Logistica per Furgone";
-    const activeVehicles = new Set();
-    entries.forEach(e => {
-      (e.logistics?.veicoli_andata || []).forEach(v => activeVehicles.add(v));
-      (e.logistics?.veicoli_ritorno || []).forEach(v => activeVehicles.add(v));
+    const vehicles = new Set();
+    enrichedEntries.forEach(e => {
+      (e.logistics?.veicoli_andata  || []).forEach(v => vehicles.add(v));
+      (e.logistics?.veicoli_ritorno || []).forEach(v => vehicles.add(v));
     });
-
-    Array.from(activeVehicles).forEach(v => {
-      const vehicleEntries = entries.filter(e => 
-        (e.logistics?.veicoli_andata || []).includes(v) || 
+    Array.from(vehicles).forEach(v => {
+      const sub = enrichedEntries.filter(e =>
+        (e.logistics?.veicoli_andata  || []).includes(v) ||
         (e.logistics?.veicoli_ritorno || []).includes(v)
       );
-      contentHtml += `<h2>Mezzo: ${v.toUpperCase()}</h2>${tableHeader}${vehicleEntries.map((e, i) => buildRow(e, i)).join("")}</tbody></table>`;
+      const dot = VEICOLO_ACCENT[v] || defaultAccent;
+      const dotHtml = `<span style="width:8px;height:8px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0"></span>`;
+      contentHtml +=
+        `<div class="sd"><span class="lbl">${dotHtml}${vLabelPrint(v)}</span><div class="ln"></div><span class="ct">${sub.length} fest${sub.length === 1 ? "a" : "e"}</span></div>` +
+        sub.map((e, i) => buildPartyCard(e, i, getName)).join("");
     });
   }
 
@@ -428,7 +532,7 @@ function handlePrint({ entries, allUsers, allVeicoli, date, type }) {
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url  = URL.createObjectURL(blob);
   const win  = window.open(url, "_blank");
-  if (win) setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 500);
+  if (win) setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 600);
 }
 
 // ─── PAGINA PRINCIPALE ────────────────────────────────────────────────────────
@@ -441,7 +545,6 @@ export default function LogisticsPage() {
   const [refreshing, setRefreshing]     = useState(false);
   const [movidaMap, setMovidaMap]       = useState({});
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
-  const [searchTerm, setSearchTerm]       = useState("");
   
   // Custom Vehicles State
   const [customVehicles, setCustomVehicles] = useState([]);
@@ -532,37 +635,6 @@ export default function LogisticsPage() {
   const filled  = entries.filter((e) => (e.logistics?.drivers_andata_ids?.length > 0) || (e.logistics?.veicoli_andata?.length > 0)).length;
   const missing = entries.length - filled;
 
-  // ── Ricerca ─────────────────────────────────────────────────────────────────
-  const filteredEntries = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return entries;
-    return entries.filter((e) => {
-      const { party, logistics: l } = e;
-      // Campi della festa
-      if (party.nome?.toLowerCase().includes(q))   return true;
-      if (party.luogo?.toLowerCase().includes(q))  return true;
-      if (party.cliente?.toLowerCase().includes(q)) return true;
-      // Animatore principale e magazziniere
-      if (party.animatore?.nome?.toLowerCase().includes(q))    return true;
-      if (party.magazziniere?.nome?.toLowerCase().includes(q)) return true;
-      // Staff, driver, responsabili dal form logistica (confronto su allUsers)
-      const userIds = [
-        ...(l?.staff_ids || []),
-        ...(l?.responsabili_ids || []),
-        ...(l?.drivers_andata_ids || []),
-        ...(l?.drivers_ritorno_ids || []),
-      ];
-      if (userIds.some((id) => {
-        const u = allUsers.find((u) => String(u.id) === String(id));
-        return u?.nome?.toLowerCase().includes(q);
-      })) return true;
-      // Mezzi (andata + ritorno)
-      const mezzi = [...(l?.veicoli_andata || []), ...(l?.veicoli_ritorno || [])];
-      if (mezzi.some((v) => v.toLowerCase().includes(q))) return true;
-      return false;
-    });
-  }, [entries, searchTerm, allUsers]);
-
   return (
     <div className="min-h-screen bg-surface pb-20">
       <Navbar />
@@ -578,9 +650,7 @@ export default function LogisticsPage() {
               <h1 className="text-3xl font-black text-foreground">Logistica</h1>
               <p className="text-muted-foreground mt-0.5 text-sm">
                 {loading ? "Caricamento…"
-                  : searchTerm
-                    ? `${filteredEntries.length} di ${entries.length} fest${entries.length === 1 ? "a" : "e"}`
-                    : `${entries.length} fest${entries.length === 1 ? "a" : "e"} · ${filled} configurate · ${missing} da completare`}
+                  : `${entries.length} fest${entries.length === 1 ? "a" : "e"} · ${filled} configurate · ${missing} da completare`}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -597,11 +667,11 @@ export default function LogisticsPage() {
                     {printMenuOpen && (
                       <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
                         className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-xl shadow-xl overflow-hidden z-50">
-                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, date: selectedDate, type: "daily" }); setPrintMenuOpen(false); }}
+                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, movidaMap, date: selectedDate, type: "daily" }); setPrintMenuOpen(false); }}
                           className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors border-b border-border">Intera Giornata</button>
-                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, date: selectedDate, type: "driver" }); setPrintMenuOpen(false); }}
+                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, movidaMap, date: selectedDate, type: "driver" }); setPrintMenuOpen(false); }}
                           className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors border-b border-border">Raggruppa per Driver</button>
-                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, date: selectedDate, type: "vehicle" }); setPrintMenuOpen(false); }}
+                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, movidaMap, date: selectedDate, type: "vehicle" }); setPrintMenuOpen(false); }}
                           className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors">Raggruppa per Furgone</button>
                       </motion.div>
                     )}
@@ -621,28 +691,6 @@ export default function LogisticsPage() {
             </div>
           </div>
 
-          {/* Ricerca */}
-          {!loading && entries.length > 0 && (
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Cerca per festa, location, animatore, driver, mezzo..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-10 py-2.5 border border-input rounded-xl focus:outline-none focus:ring-2 focus:ring-ring text-sm bg-card shadow-sm"
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          )}
-
           {/* Lista Feste */}
           {loading ? (
             <div className="space-y-4">
@@ -661,20 +709,9 @@ export default function LogisticsPage() {
               <p className="font-medium text-foreground">Nessuna festa per questa data</p>
               <p className="text-sm text-muted-foreground mt-1">Prova un giorno diverso o sincronizza dalla pagina Feste</p>
             </motion.div>
-          ) : filteredEntries.length === 0 ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
-              <div className="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center mx-auto mb-3">
-                <Search className="w-7 h-7 text-muted-foreground opacity-30" />
-              </div>
-              <p className="font-medium text-foreground">Nessun risultato per "{searchTerm}"</p>
-              <p className="text-sm text-muted-foreground mt-1">Prova a cercare per nome festa, luogo, animatore, driver o mezzo</p>
-              <button onClick={() => setSearchTerm("")} className="mt-4 px-4 py-2 rounded-xl border border-border bg-card text-sm font-medium text-muted-foreground hover:bg-surface transition-colors">
-                Rimuovi filtro
-              </button>
-            </motion.div>
           ) : (
             <div className="space-y-4">
-              {filteredEntries.map((entry, i) => {
+              {entries.map((entry, i) => {
                 const extId = normalizeId(entry.party.external_id);
                 return (
                   <LogisticRow
