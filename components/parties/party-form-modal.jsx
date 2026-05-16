@@ -50,6 +50,8 @@ export function PartyFormModal({
   const animatoriIds     = Array.isArray(party.animatori_ids) ? party.animatori_ids : [];
   const animatoriList    = users.filter((u) => u.ruolo === "animatore" || u.ruolo === "amministratore");
   const magazzinieriList = users.filter((u) => u.ruolo === "magazziniere" || u.ruolo === "amministratore");
+  const responsabiliList = users.filter((u) => u.ruolo === "responsabile" || u.ruolo === "amministratore");
+  const driverList       = users.filter((u) => u.ruolo === "driver" || u.ruolo === "amministratore");
 
   const addAnimatore = (userId) => {
     if (!userId || animatoriIds.includes(userId)) return;
@@ -61,6 +63,28 @@ export function PartyFormModal({
   const selectedAnimatori  = animatoriIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
   const availableAnimatori = animatoriList.filter((u) => !animatoriIds.includes(u.id));
 
+  // ── Multi-responsabile ───────────────────────────────────────────────────────
+  const responsabiliIds     = Array.isArray(party.responsabili_ids) ? party.responsabili_ids : [];
+  const addResponsabile     = (userId) => {
+    if (!userId || responsabiliIds.includes(userId)) return;
+    onPartyChange({ ...party, responsabili_ids: [...responsabiliIds, userId] });
+  };
+  const removeResponsabile  = (userId) =>
+    onPartyChange({ ...party, responsabili_ids: responsabiliIds.filter((id) => id !== userId) });
+  const selectedResponsabili  = responsabiliIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
+  const availableResponsabili = responsabiliList.filter((u) => !responsabiliIds.includes(u.id));
+
+  // ── Multi-driver ─────────────────────────────────────────────────────────────
+  const driversIds     = Array.isArray(party.drivers_ids) ? party.drivers_ids : [];
+  const addDriver      = (userId) => {
+    if (!userId || driversIds.includes(userId)) return;
+    onPartyChange({ ...party, drivers_ids: [...driversIds, userId] });
+  };
+  const removeDriver   = (userId) =>
+    onPartyChange({ ...party, drivers_ids: driversIds.filter((id) => id !== userId) });
+  const selectedDrivers  = driversIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
+  const availableDrivers = driverList.filter((u) => !driversIds.includes(u.id));
+
   // Staff mancante
   const missingAnimatore   = animatoriIds.length === 0;
   const missingMagazziniere = !party.magazziniere_id;
@@ -70,9 +94,16 @@ export function PartyFormModal({
   const handoffEnabled  = !!(party.handoff_to_party_id);
   const handoffMacroIds = Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [];
 
-  const handoffCandidates = allParties.filter(
-    (p) => p.id !== party.id && p.data === party.data && p.stato !== "scaricato_scaffale"
-  );
+  // Finestra handoff: stessa data + i prossimi 3 giorni
+  const partyDate = party.data ? new Date(party.data + "T00:00:00") : null;
+  const maxHandoffDate = partyDate ? new Date(partyDate.getTime() + 3 * 24 * 60 * 60 * 1000) : null;
+
+  const handoffCandidates = allParties.filter((p) => {
+    if (p.id === party.id || p.stato === "scaricato_scaffale") return false;
+    if (!partyDate) return false;
+    const d = new Date(p.data + "T00:00:00");
+    return d >= partyDate && d <= maxHandoffDate;
+  });
 
   const toggleHandoffMacro = (macroId) => {
     const next = handoffMacroIds.includes(macroId)
@@ -224,6 +255,86 @@ export function PartyFormModal({
                 <option key={u.id} value={u.id}>{u.nome}</option>
               ))}
             </select>
+          </div>
+
+          {/* ── Responsabili (multi) ── */}
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              <span className="flex items-center gap-1.5">
+                <Users className="w-4 h-4" /> Responsabili
+              </span>
+            </label>
+            {selectedResponsabili.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {selectedResponsabili.map((u) => (
+                  <span key={u.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
+                    {u.nome}
+                    <button type="button" onClick={() => removeResponsabile(u.id)} className="hover:text-purple-400 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) { addResponsabile(e.target.value); e.target.value = ""; } }}
+                className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+              >
+                <option value="">
+                  {availableResponsabili.length === 0
+                    ? "Tutti i responsabili assegnati"
+                    : responsabiliIds.length === 0 ? "Aggiungi responsabile..." : "Aggiungi un altro responsabile..."}
+                </option>
+                {availableResponsabili.map((u) => (
+                  <option key={u.id} value={u.id}>{u.nome}</option>
+                ))}
+              </select>
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-purple-100 text-purple-600 shrink-0">
+                <UserPlus className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Driver (multi) ── */}
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              <span className="flex items-center gap-1.5">
+                <Users className="w-4 h-4" /> Driver
+              </span>
+            </label>
+            {selectedDrivers.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {selectedDrivers.map((u) => (
+                  <span key={u.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-sm font-medium">
+                    {u.nome}
+                    <button type="button" onClick={() => removeDriver(u.id)} className="hover:text-sky-400 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) { addDriver(e.target.value); e.target.value = ""; } }}
+                className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+              >
+                <option value="">
+                  {availableDrivers.length === 0
+                    ? "Tutti i driver assegnati"
+                    : driversIds.length === 0 ? "Aggiungi driver..." : "Aggiungi un altro driver..."}
+                </option>
+                {availableDrivers.map((u) => (
+                  <option key={u.id} value={u.id}>{u.nome}</option>
+                ))}
+              </select>
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-sky-100 text-sky-600 shrink-0">
+                <UserPlus className="w-4 h-4" />
+              </div>
+            </div>
           </div>
 
           {/* ── Alert staff mancante ── */}
@@ -475,7 +586,7 @@ export function PartyFormModal({
                         <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                           <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                           <p className="text-xs text-amber-700">
-                            Nessuna altra festa attiva trovata per questa data. Crea prima l'altra festa, poi torna qui.
+                            Nessuna festa attiva trovata per questa data o nei prossimi 3 giorni. Crea prima l'altra festa, poi torna qui.
                           </p>
                         </div>
                       ) : (
