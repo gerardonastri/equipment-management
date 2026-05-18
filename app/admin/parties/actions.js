@@ -729,3 +729,144 @@ export async function removeMaterial(partyId, macroId) {
   revalidatePath("/admin/parties");
   return { success: true };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANIMATORI DA GESTIONALE MOVIDA
+// Stesso pattern di logistics — recupera gli animatori per data dall'API esterna.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MOVIDA_API_BASE_PARTIES = "http://93.39.183.62:99/s.movida/api/eventi.php";
+
+const normalizeIdStr = (id) => String(id).toLowerCase().replace(/\s+/g, "");
+
+/**
+ * Recupera dall'API Movida gli animatori assegnati agli eventi di una data.
+ * Restituisce { [id_evento_normalizzato]: AnimatoreMovida[] }
+ */
+export async function getMovidaAnimatoriForDate(date) {
+  try {
+    const res = await fetch(`${MOVIDA_API_BASE_PARTIES}?data=${date}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return {};
+
+    const json = await res.json();
+    const eventi = json?.eventi || [];
+
+    const result = {};
+    for (const evento of eventi) {
+      const id = normalizeIdStr(evento.id_evento);
+      result[id] = (evento.animatori || []).map((a) => ({
+        id:            a.id_animatore,
+        denominazione: a.denominazione || "",
+        categoria:     a.categoria     || "",
+        responsabile:  !!a.responsabile,
+        assente:       !!a.assente,
+      }));
+    }
+    return result;
+  } catch (err) {
+    console.error("[parties] getMovidaAnimatoriForDate error:", err);
+    return {};
+  }
+}
+
+/**
+ * Per una lista di feste, risolve i match tra animatori Movida e utenti DB.
+ * Restituisce { [partyId]: { matched: User[], unmatched: string[] } }
+ *
+ * "matched"   = utenti DB trovati per nome (case-insensitive)
+ * "unmatched" = nomi dal gestionale senza corrispondenza nel DB
+ */
+export async function resolveMovidaAnimatoriForParties(parties, date) {
+  const supabase = await createServerClient();
+
+  // 1. Recupera animatori dal gestionale
+  const movidaMap = await getMovidaAnimatoriForDate(date);
+  if (!Object.keys(movidaMap).length) return {};
+
+  // 2. Tutti gli utenti DB (una sola query)
+  const { data: allUsers } = await supabase
+    .from("users")
+    .select("id, nome, ruolo")
+    .order("nome");
+  const users = allUsers || [];
+
+  const result = {};
+
+  for (const party of parties) {
+    if (!party.external_id) continue;
+    const extId = normalizeIdStr(party.external_id);
+    const movidaAnimatori = movidaMap[extId] || [];
+    if (!movidaAnimatori.length) continue;
+
+    const matched   = [];
+    const unmatched = [];
+
+    for (const ma of movidaAnimatori) {
+      const normalizedName = normalizeIdStr(ma.denominazione);
+      const user = users.find((u) => normalizeIdStr(u.nome) === normalizedName);
+      if (user) {
+        matched.push({ ...user, _movida: ma });
+      } else {
+        unmatched.push(ma.denominazione);
+      }
+    }
+
+    result[party.id] = { matched, unmatched };
+  }
+
+  return result;
+}
+/**
+ * Sincronizza gli animatori di UNA festa dal gestionale Movida al DB.
+ * Fa un MERGE: mantiene gli animatori già assegnati manualmente,
+ * aggiunge quelli trovati dal gestionale che matchano per nome.
+ * Restituisce { added, unmatched, animatori_ids }
+ */
+export async function syncAnimatoriForParty(partyId) {
+  const supabase = await createServerClient();
+
+  const { data: party, error: partyError } = await supabase
+    .from("parties")
+    .select("id, external_id, data, animatori_ids")
+    .eq("id", partyId)
+    .single();
+
+  if (partyError || !party) return { error: "Festa non trovata" };
+  if (!party.external_id) return { error: "Questa festa non ha un ID gestionale" };
+
+  const movidaMap = await getMovidaAnimatoriForDate(party.data);
+  const extId = normalizeIdStr(party.external_id);
+  const movidaAnimatori = movidaMap[extId] || [];
+
+  if (!movidaAnimatori.length) {
+    return { added: 0, unmatched: [], animatori_ids: party.animatori_ids || [] };
+  }
+
+  const { data: allUsers } = await supabase.from("users").select("id, nome").order("nome");
+  const users = allUsers || [];
+
+  const currentIds = new Set((party.animatori_ids || []).map(String));
+  const unmatched = [];
+  let added = 0;
+
+  for (const ma of movidaAnimatori) {
+    const user = users.find((u) => normalizeIdStr(u.nome) === normalizeIdStr(ma.denominazione));
+    if (user) {
+      if (!currentIds.has(String(user.id))) { currentIds.add(String(user.id)); added++; }
+    } else {
+      unmatched.push(ma.denominazione);
+    }
+  }
+
+  const newIds = Array.from(currentIds);
+  if (added > 0) {
+    const { error: updateError } = await supabase.from("parties").update({ animatori_ids: newIds }).eq("id", partyId);
+    if (updateError) return { error: updateError.message };
+    revalidatePath("/admin/parties");
+  }
+
+  return { added, unmatched, animatori_ids: newIds };
+}

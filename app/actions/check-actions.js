@@ -656,8 +656,8 @@ export async function submitCheck(
 
     const allowedRoles = {
       deposito_scaffale: ["magazziniere", "amministratore"],
-      scaffale_furgone: ["animatore", "magazziniere", "amministratore"],
-      furgone_scaffale: ["animatore", "magazziniere", "amministratore"],
+      scaffale_furgone:  ["animatore", "magazziniere", "amministratore", "responsabile", "driver"],
+      furgone_scaffale:  ["animatore", "magazziniere", "amministratore", "responsabile", "driver"],
       scaffale_deposito: ["magazziniere", "amministratore"],
     };
 

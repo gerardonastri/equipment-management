@@ -382,8 +382,8 @@ Scannerizza i singoli oggetti della categoria "${category.name}".`);
 
   const checkTypes = [
     { id: "deposito_scaffale",  name: "Carico dal Deposito allo Scaffale",  icon: Home,    color: "text-primary",   allowedRoles: ["magazziniere", "amministratore"] },
-    { id: "scaffale_furgone",   name: "Carico dallo Scaffale al Furgone",   icon: Truck,   color: "text-secondary", allowedRoles: ["animatore", "magazziniere", "amministratore"] },
-    { id: "furgone_scaffale",   name: "Scarico dal Furgone allo Scaffale",  icon: MapPin,  color: "text-accent",    allowedRoles: ["animatore", "magazziniere", "amministratore"] },
+    { id: "scaffale_furgone",   name: "Carico dallo Scaffale al Furgone",   icon: Truck,   color: "text-secondary", allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
+    { id: "furgone_scaffale",   name: "Scarico dal Furgone allo Scaffale",  icon: MapPin,  color: "text-accent",    allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
     { id: "scaffale_deposito",  name: "Scarico dallo Scaffale al Deposito", icon: Package, color: "text-primary",   allowedRoles: ["magazziniere", "amministratore"] },
   ];
 
@@ -778,22 +778,57 @@ Scannerizza i singoli oggetti della categoria "${category.name}".`);
   }
 
   if (currentUser && partyData?.animatore_id) {
-    const isAnimator = currentUser.ruolo === "animatore";
-    // Supporto multi-animatore: controlla sia animatore_id sia animatori_ids
-    const animatoriIds = partyData.animatori_ids || [];
-    const isAssignedAnimator =
-      partyData.animatore_id === currentUser.id ||
-      animatoriIds.includes(currentUser.id);
-    if (isAnimator && !isAssignedAnimator) {
-      return (
-        <div className="min-h-screen bg-surface flex items-center justify-center">
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
-            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
-            <p className="text-muted-foreground mb-6">Non sei tra gli animatori assegnati a questa festa.</p>
-          </motion.div>
-        </div>
-      );
+    const role = currentUser.ruolo;
+    const animatoriIds   = partyData.animatori_ids   || [];
+    const responsabiliIds = partyData.responsabili_ids || [];
+    const driversIds      = partyData.drivers_ids      || [];
+
+    // Animatore non assegnato
+    if (role === "animatore") {
+      const isAssigned =
+        partyData.animatore_id === currentUser.id ||
+        animatoriIds.includes(currentUser.id);
+      if (!isAssigned) {
+        return (
+          <div className="min-h-screen bg-surface flex items-center justify-center">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
+              <p className="text-muted-foreground mb-6">Non sei tra gli animatori assegnati a questa festa.</p>
+            </motion.div>
+          </div>
+        );
+      }
+    }
+
+    // Responsabile non assegnato
+    if (role === "responsabile" && responsabiliIds.length > 0) {
+      if (!responsabiliIds.includes(currentUser.id)) {
+        return (
+          <div className="min-h-screen bg-surface flex items-center justify-center">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
+              <p className="text-muted-foreground mb-6">Non sei tra i responsabili assegnati a questa festa.</p>
+            </motion.div>
+          </div>
+        );
+      }
+    }
+
+    // Driver non assegnato
+    if (role === "driver" && driversIds.length > 0) {
+      if (!driversIds.includes(currentUser.id)) {
+        return (
+          <div className="min-h-screen bg-surface flex items-center justify-center">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
+              <p className="text-muted-foreground mb-6">Non sei tra i driver assegnati a questa festa.</p>
+            </motion.div>
+          </div>
+        );
+      }
     }
   }
 
