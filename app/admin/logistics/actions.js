@@ -43,9 +43,29 @@ export async function getLogisticsByDate(date) {
     (logistics || []).map((l) => [l.party_id, l])
   );
 
+  // Carica le macro assegnate a ogni festa tramite party_inventory
+  const { data: partyInventory } = await supabase
+    .from("party_inventory")
+    .select("party_id, inventory_items!inner(id, name, type)")
+    .in("party_id", partyIds)
+    .eq("inventory_items.type", "macro");
+
+  // Raggruppa macro per party_id
+  const macrosMap = {};
+  for (const row of partyInventory || []) {
+    const pid = row.party_id;
+    if (!macrosMap[pid]) macrosMap[pid] = [];
+    macrosMap[pid].push({ id: row.inventory_items.id, name: row.inventory_items.name });
+  }
+  // Ordine alfabetico per coerenza con il resto dell'app
+  for (const pid of Object.keys(macrosMap)) {
+    macrosMap[pid].sort((a, b) => a.name.localeCompare(b.name, "it"));
+  }
+
   return parties.map((p) => ({
     party: p,
     logistics: logisticsMap[p.id] || null,
+    macros: macrosMap[p.id] || [],
   }));
 }
 

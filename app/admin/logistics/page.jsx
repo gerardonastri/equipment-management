@@ -127,7 +127,7 @@ function UserSelector({ allUsers, selectedIds, onChange, placeholder = "Aggiungi
 
 // ─── Riga Logistica ───────────────────────────────────────────────────────────
 function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaAnimatori, allVeicoli }) {
-  const { party, logistics } = entry;
+  const { party, logistics, macros = [] } = entry;
 
   // 1. AUTO-MATCHING SILENZIOSO: Incrocia animatori Movida col nostro DB utenti
   const matchedStaffIds = useMemo(() => {
@@ -332,7 +332,60 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
           </div>
         </div>
       </div>
+
+      {/* Materiale assegnato */}
+      {macros.length > 0 && (
+        <MacroSection macros={macros} />
+      )}
     </motion.div>
+  );
+}
+
+// ─── Sezione Materiale (collassabile) ─────────────────────────────────────────
+function MacroSection({ macros }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-border">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-2.5 hover:bg-surface/60 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Package className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-semibold text-foreground">
+            Materiale assegnato
+          </span>
+          <span className="text-xs text-muted-foreground bg-surface border border-border px-1.5 py-0.5 rounded-md font-medium">
+            {macros.length}
+          </span>
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-3 flex flex-wrap gap-1.5">
+              {macros.map((m) => (
+                <span
+                  key={m.id}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/20 bg-primary/5 text-primary text-xs font-medium"
+                >
+                  <Package className="w-3 h-3 shrink-0" />
+                  {m.name}
+                </span>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -374,7 +427,7 @@ function colLabel(text, color = "#9ca3af") {
 const EMPTY = `<span style="color:#d1d5db;font-size:9px">—</span>`;
 
 function buildPartyCard(entry, index, getName) {
-  const { party, logistics: l } = entry;
+  const { party, logistics: l, macros = [] } = entry;
   const staffNames = (l?.staff_ids || []).map(getName).filter(n => n !== "—");
   const respNames  = (l?.responsabili_ids || []).map(getName).filter(n => n !== "—");
   const driversA   = (l?.drivers_andata_ids || []).map(getName).filter(n => n !== "—");
@@ -384,6 +437,15 @@ function buildPartyCard(entry, index, getName) {
   const configured = driversA.length > 0 || mezziA.length > 0;
   const soloA      = !!l?.solo_andata;
   const barColor   = configured ? "#111" : "#e5e7eb";
+
+  const macroRow = macros.length > 0
+    ? `<div style="padding:6px 12px 8px 28px;border-top:1px solid #f3f4f6;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+        <span style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9ca3af;margin-right:6px;white-space:nowrap">Materiale</span>
+        ${macros.map(m =>
+          `<span style="display:inline-flex;align-items:center;gap:3px;font-size:8.5px;color:#4f46e5;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;padding:1px 7px;font-weight:500">${m.name}</span>`
+        ).join("")}
+      </div>`
+    : "";
 
   return `
 <div style="display:flex;margin-bottom:9px;page-break-inside:avoid;background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
@@ -429,6 +491,7 @@ function buildPartyCard(entry, index, getName) {
         ${l?.note ? `<div style="font-size:9.5px;color:#374151;line-height:1.6">${l.note}</div>` : EMPTY}
       </div>
     </div>
+    ${macroRow}
   </div>
 </div>`;
 }
@@ -467,7 +530,7 @@ function handlePrint({ entries, allUsers, allVeicoli, movidaMap, date, type }) {
   // Ricostruisce il merge Movida+DB esattamente come fa buildForm nel LogisticRow,
   // così lo staff auto-matched appare anche se non ancora salvato.
   const enrichedEntries = entries.map((entry) => {
-    const { party, logistics: l } = entry;
+    const { party, logistics: l, macros = [] } = entry;
     const extId = normalizeId(party.external_id);
     const movidaAnimatori = movidaMap?.[extId] || [];
     const movidaNames = movidaAnimatori.map(a => normalizeId(a.denominazione));
@@ -478,6 +541,7 @@ function handlePrint({ entries, allUsers, allVeicoli, movidaMap, date, type }) {
     const mergedStaff = Array.from(new Set([...savedStaff, ...matchedIds]));
     return {
       ...entry,
+      macros,
       logistics: l ? { ...l, staff_ids: mergedStaff } : { staff_ids: mergedStaff },
     };
   });
@@ -657,6 +721,8 @@ export default function LogisticsPage() {
       })) return true;
       const mezzi = [...(l?.veicoli_andata || []), ...(l?.veicoli_ritorno || [])];
       if (mezzi.some((v) => v.toLowerCase().includes(q))) return true;
+      // Macro assegnate
+      if ((e.macros || []).some((m) => m.name.toLowerCase().includes(q))) return true;
       return false;
     });
   }, [entries, searchTerm, allUsers]);
