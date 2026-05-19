@@ -30,7 +30,6 @@ import {
 } from "./actions";
 import { cacheManager } from "@/lib/cache/db";
 
-
 // ─── Toast system ─────────────────────────────────────────────────────────────
 function ToastContainer({ toasts, removeToast }) {
   return (
@@ -96,6 +95,25 @@ function SyncStatusBar({ status, rowsFetched, rowsUpserted, errorMsg, onRetry })
   );
 }
 
+// ── Incolla questa funzione qui ──
+const mapHandoffRelations = (partiesList) => {
+  if (!partiesList) return [];
+  return partiesList.map((party) => {
+    // 1. Cerca la festa di destinazione a cui passa la merce
+    const targetParty = partiesList.find((p) => p.id === party.handoff_to_party_id);
+    // 2. Cerca se un'altra festa sta passando materiale a questa
+    const sourceParty = partiesList.find((p) => p.handoff_to_party_id === party.id);
+
+    return {
+      ...party,
+      _handoffTargetParty: targetParty || null,
+      _isHandoffDestination: !!sourceParty,
+      _handoffSourceParty: sourceParty || null,
+    };
+  });
+};
+// ───────────────────────────────────
+
 export default function PartiesPage() {
   // ── Toast ──
   const { toasts, toast, removeToast } = useToast();
@@ -141,7 +159,10 @@ export default function PartiesPage() {
 
   const users = data?.users || [];
   const macroCategories = data?.macroCategories || [];
-  const parties = syncedParties ?? [];
+  
+  // ── Modifica qui: passiamo l'array nella nostra funzione ──
+  const rawParties = syncedParties ?? [];
+  const parties = mapHandoffRelations(rawParties);
 
   // ── Sync ──
   const runSyncForDate = useCallback(async (date) => {
@@ -492,6 +513,7 @@ export default function PartiesPage() {
                     getStatusColor={getStatusColor}
                     getStatusText={getStatusText}
                     getStatusIcon={getStatusIcon}
+                    allUsers={users} // <── AGGIUNTO QUI!
                   />
                 );
               })

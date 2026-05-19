@@ -15,6 +15,7 @@ import {
   Building2,
   Tag,
   FileText,
+  ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -45,7 +46,6 @@ export function PartyCard({
   getStatusColor,
   getStatusText,
   getStatusIcon,
-  // allUsers è opzionale: se passato, risolve i nomi da animatori_ids
   allUsers = [],
 }) {
   const firstShelf = party.shelves ? party.shelves.split(",")[0].trim() : null;
@@ -61,27 +61,31 @@ export function PartyCard({
   }, {});
 
   // ── Risolvi nomi animatori ──────────────────────────────────────────────────
-  // Strategia: se animatori_ids è popolato, usa quelli (con risoluzione nomi da allUsers).
-  // Fallback: campo join animatore?.nome (legacy).
   const animatoriIds = Array.isArray(party.animatori_ids) ? party.animatori_ids : [];
 
   let animatoriNomi = [];
   if (animatoriIds.length > 0 && allUsers.length > 0) {
-    // Risolve da allUsers
     animatoriNomi = animatoriIds
       .map((id) => allUsers.find((u) => u.id === id)?.nome)
       .filter(Boolean);
   } else if (animatoriIds.length > 0) {
-    // allUsers non passato, ma abbiamo gli id: mostra count generico
     animatoriNomi = [`${animatoriIds.length} animator${animatoriIds.length > 1 ? "i" : "e"}`];
   } else if (party.animatore?.nome) {
-    // Legacy: singolo animatore dal join
     animatoriNomi = [party.animatore.nome];
   }
 
   const animatoriLabel = animatoriNomi.length > 0
     ? animatoriNomi.join(", ")
     : "Non assegnato";
+
+  // ── Info Handoff (Risoluzione Relazioni Incrociate) ──────────────────────────
+  // 1. Questa festa CEDE materiale? (Se ha valorizzato handoff_to_party_id)
+  const isSource = !!party.handoff_to_party_id; 
+  const targetParty = party._handoffTargetParty; // Passato dal componente padre
+
+  // 2. Questa festa RICEVE materiale? (Se un'altra festa la punta come destinazione)
+  const isDestination = !!party._isHandoffDestination;
+  const sourceParty = party._handoffSourceParty; // Passato dal componente padre
 
   return (
     <motion.div
@@ -125,13 +129,50 @@ export function PartyCard({
                 {getStatusIcon(party.stato)}
                 <span>{getStatusText(party.stato)}</span>
               </span>
+              
               {party.categoria_evento && (
                 <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200">
                   <Tag className="w-3 h-3" />
                   {party.categoria_evento}
                 </span>
               )}
+
+              {/* 🍏 TAG APPLE: SE CEDE MATERIALE */}
+              {isSource && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600 border border-indigo-100 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  <span>Cede Materiale ✈️</span>
+                </span>
+              )}
+
+              {/* 🍏 TAG APPLE: SE RICEVE MATERIALE */}
+              {isDestination && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-50 text-violet-600 border border-violet-100 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                  <span>Riceve in Handoff 📦</span>
+                </span>
+              )}
             </div>
+
+            {/* 🍏 APPLE BOX - DETTAGLI DI CHI CEDE (Mostra la destinazione del viaggio della merce) */}
+            {isSource && targetParty && (
+              <div className="mb-3 px-3 py-2 bg-indigo-50/40 rounded-lg border border-indigo-100/60 text-xs text-indigo-700 flex items-center flex-wrap gap-1">
+                <span className="font-semibold uppercase tracking-wider text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded mr-1">Output</span>
+                <span>Materiale assegnato passerà direttamente a</span>
+                <span className="font-bold underline text-indigo-900">{targetParty.nome}</span>
+                <span className="opacity-60">({targetParty.luogo} il {new Date(targetParty.data + "T00:00:00").toLocaleDateString("it-IT")})</span>
+              </div>
+            )}
+
+            {/* 🍏 APPLE BOX - DETTAGLI DI CHI RICEVE (Mostra da dove proviene la merce) */}
+            {isDestination && sourceParty && (
+              <div className="mb-3 px-3 py-2 bg-violet-50/40 rounded-lg border border-violet-100/60 text-xs text-violet-700 flex items-center flex-wrap gap-1">
+                <span className="font-semibold uppercase tracking-wider text-[10px] bg-violet-600 text-white px-1.5 py-0.5 rounded mr-1">Input</span>
+                <span>Prende il materiale direttamente da</span>
+                <span className="font-bold underline text-violet-900">{sourceParty.nome}</span>
+                <span className="opacity-60">({sourceParty.luogo} del {new Date(sourceParty.data + "T00:00:00").toLocaleDateString("it-IT")})</span>
+              </div>
+            )}
 
             {/* Cliente */}
             {party.cliente && (
@@ -157,7 +198,7 @@ export function PartyCard({
                 <span className="font-medium text-foreground">{party.luogo}</span>
               </div>
 
-              {/* ── Animatori — mostra tutti ── */}
+              {/* Animatori */}
               <div className="flex items-start space-x-2 md:col-span-2 lg:col-span-1">
                 <User className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                 <span className="text-muted-foreground shrink-0">

@@ -829,77 +829,84 @@ export async function submitCheck(
       console.error("[v0] Error sending Telegram notification:", telegramError);
     }
 
-    // ── Logica Handoff ──────────────────────────────────────────────────────
+// ── Logica Handoff ──────────────────────────────────────────────────────
     if (checkType === "furgone_scaffale") {
+      
       const { data: currentPartyFull } = await supabase
         .from("parties")
         .select("handoff_to_party_id, handoff_macro_ids")
         .eq("id", partyId)
         .single();
 
+      // SE QUESTA È LA PRIMA FESTA CHE SCARICA SULLO SCAFFALE "VIRTUALE"
       if (currentPartyFull?.handoff_to_party_id && currentPartyFull.handoff_macro_ids?.length > 0) {
         const destPartyId = currentPartyFull.handoff_to_party_id;
-        console.log("[v0] Handoff attivo: creazione check automatici per festa", destPartyId);
+        console.log("[v0] Handoff attivo: aggiornamento automatico feste");
 
-        const { data: existingDestCheck } = await supabase
+        // 1. AUTO-COMPLETA LE PRIME DUE FASI PER LA SECONDA FESTA
+        const { data: existingDestChecks } = await supabase
           .from("checks")
-          .select("id")
+          .select("type")
           .eq("party_id", destPartyId)
-          .eq("type", "deposito_scaffale")
-          .maybeSingle();
+          .in("type", ["deposito_scaffale", "scaffale_furgone"]);
 
-        if (!existingDestCheck) {
-          await supabase.from("checks").insert({
+        const existingTypes = existingDestChecks?.map(c => c.type) || [];
+        const checksToInsert = [];
+
+        // Salta Fase 1: Il magazziniere non deve prepararla
+        if (!existingTypes.includes("deposito_scaffale")) {
+          checksToInsert.push({
             party_id:           destPartyId,
-            user_id:            userId,
+            user_id:            userId, // L'animatore che sta passando il materiale
             type:               "deposito_scaffale",
-            notes:              `Check automatico — materiale ricevuto in handoff dalla festa sorgente (scaffale animatore). Macro trasferite: ${currentPartyFull.handoff_macro_ids.length}`,
+            notes:              `Check automatico — materiale ricevuto in handoff dalla festa sorgente.`,
             materiale_smarrito: false,
           });
+        }
 
+        // Salta Fase 2: Il materiale è GIA' nel furgone della nuova festa
+        if (!existingTypes.includes("scaffale_furgone")) {
+          checksToInsert.push({
+            party_id:           destPartyId,
+            user_id:            userId,
+            type:               "scaffale_furgone",
+            notes:              `Check automatico — materiale già nel furgone. L'animatore partirà direttamente dalla fase di ritorno (scarico furgone).`,
+            materiale_smarrito: false,
+          });
+        }
+
+        if (checksToInsert.length > 0) {
+          await supabase.from("checks").insert(checksToInsert);
+          
+          // Imposta la SECONDA festa direttamente come "caricato_furgone"
           await supabase
             .from("parties")
-            .update({ stato: "caricato_scaffale" })
+            .update({ stato: "caricato_furgone" })
             .eq("id", destPartyId);
-
-          console.log("[v0] Handoff: check deposito_scaffale creato per festa destinazione", destPartyId);
         }
-      }
-    }
 
-    if (checkType === "furgone_scaffale") {
-      const { data: srcParties } = await supabase
-        .from("parties")
-        .select("id, handoff_macro_ids")
-        .eq("handoff_to_party_id", partyId)
-        .neq("stato", "scaricato_scaffale");
+        // 2. CHIUDI DEFINITIVAMENTE LA PRIMA FESTA (Salta l'ultimo check magazziniere)
+        const { data: existingSrc } = await supabase
+          .from("checks")
+          .select("id")
+          .eq("party_id", partyId)
+          .eq("type", "scaffale_deposito")
+          .maybeSingle();
 
-      if (srcParties?.length) {
-        for (const srcParty of srcParties) {
-          if (!srcParty.handoff_macro_ids?.length) continue;
-          const { data: existingSrc } = await supabase
-            .from("checks")
-            .select("id")
-            .eq("party_id", srcParty.id)
-            .eq("type", "scaffale_deposito")
-            .maybeSingle();
-
-          if (!existingSrc) {
-            await supabase.from("checks").insert({
-              party_id:           srcParty.id,
-              user_id:            userId,
-              type:               "scaffale_deposito",
-              notes:              `Check automatico — materiale in handoff, non rientra in magazzino. Gestito dall'animatore.`,
-              materiale_smarrito: false,
-            });
-
-            await supabase
-              .from("parties")
-              .update({ stato: "scaricato_scaffale" })
-              .eq("id", srcParty.id);
-
-            console.log("[v0] Handoff: check scaffale_deposito sintetico creato per festa sorgente", srcParty.id);
-          }
+        if (!existingSrc) {
+          await supabase.from("checks").insert({
+            party_id:           partyId,
+            user_id:            userId,
+            type:               "scaffale_deposito",
+            notes:              `Check automatico — la festa è conclusa sullo scaffale virtuale, salta l'ultimo controllo del magazziniere.`,
+            materiale_smarrito: false,
+          });
+          
+          // Chiude la PRIMA festa per sempre
+          await supabase
+            .from("parties")
+            .update({ stato: "scaricato_scaffale" })
+            .eq("id", partyId);
         }
       }
     }
