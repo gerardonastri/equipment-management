@@ -215,6 +215,12 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
               {party.ora_inizio && (
                 <span className="flex items-center gap-1 font-bold text-foreground"><Clock className="w-3 h-3" />{party.ora_inizio}</span>
               )}
+              {party.responsabili_ids && party.responsabili_ids.length > 0 && (
+                <span className="flex items-center gap-1 text-purple-600 font-medium">
+                  <Users className="w-3 h-3" />
+                  {party.responsabili_ids.map(id => allUsers.find(u => String(u.id) === String(id))?.nome).filter(Boolean).join(", ")}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -440,7 +446,7 @@ function buildPartyCard(entry, index, getName) {
 
   const macroRow = macros.length > 0
     ? `<div style="padding:6px 12px 8px 28px;border-top:1px solid #f3f4f6;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
-        <span style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9ca3af;margin-right:6px;white-space:nowrap">Materiale</span>
+        <span style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9ca3af;margin-right:6px;white-space:nowrap">Materiale (Macro)</span>
         ${macros.map(m =>
           `<span style="display:inline-flex;align-items:center;gap:3px;font-size:8.5px;color:#4f46e5;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;padding:1px 7px;font-weight:500">${m.name}</span>`
         ).join("")}

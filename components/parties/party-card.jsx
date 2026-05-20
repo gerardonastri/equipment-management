@@ -6,6 +6,8 @@ import {
   MapPin,
   User,
   Users,
+  UserCheck,
+  Car,
   Package,
   Edit,
   Trash2,
@@ -15,7 +17,6 @@ import {
   Building2,
   Tag,
   FileText,
-  ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -47,45 +48,45 @@ export function PartyCard({
   getStatusText,
   getStatusIcon,
   allUsers = [],
+  partyAlerts = {},
 }) {
   const firstShelf = party.shelves ? party.shelves.split(",")[0].trim() : null;
 
-  const losses          = party._losses || [];
-  const hasLosses       = losses.length > 0;
-  const hasMissingMaterial = party._hasMissingMaterial;
-  const showAlert       = hasLosses || hasMissingMaterial;
+  // Prendi le losses dagli alert o da _losses
+  const alertData = partyAlerts[party.id] || {};
+  const losses = alertData.losses || party._losses || [];
+  const hasMissingMaterial = alertData.hasMissingMaterial || party._hasMissingMaterial;
+  const hasLosses = losses.length > 0;
+  const showAlert = hasLosses || hasMissingMaterial;
 
   const countByType = losses.reduce((acc, l) => {
     acc[l.tipo] = (acc[l.tipo] || 0) + 1;
     return acc;
   }, {});
 
-  // ── Risolvi nomi animatori ──────────────────────────────────────────────────
-  const animatoriIds = Array.isArray(party.animatori_ids) ? party.animatori_ids : [];
+  // ── Helper universale per risolvere i nomi degli utenti ─────────────────────
+  const resolveNames = (idsArray, fallbackId, fallbackObj) => {
+    const ids = Array.isArray(idsArray) ? idsArray : fallbackId ? [fallbackId] : [];
+    if (ids.length > 0 && allUsers.length > 0) {
+      return ids.map((id) => allUsers.find((u) => u.id === id)?.nome).filter(Boolean);
+    }
+    if (fallbackObj?.nome) return [fallbackObj.nome];
+    return [];
+  };
 
-  let animatoriNomi = [];
-  if (animatoriIds.length > 0 && allUsers.length > 0) {
-    animatoriNomi = animatoriIds
-      .map((id) => allUsers.find((u) => u.id === id)?.nome)
-      .filter(Boolean);
-  } else if (animatoriIds.length > 0) {
-    animatoriNomi = [`${animatoriIds.length} animator${animatoriIds.length > 1 ? "i" : "e"}`];
-  } else if (party.animatore?.nome) {
-    animatoriNomi = [party.animatore.nome];
-  }
-
-  const animatoriLabel = animatoriNomi.length > 0
-    ? animatoriNomi.join(", ")
-    : "Non assegnato";
+  // Risoluzione dei tre ruoli separati
+  const responsabiliNomi = resolveNames(party.responsabili_ids);
+  const animatoriNomi    = resolveNames(party.animatori_ids, party.animatore_id, party.animatore);
+  const driversNomi      = resolveNames(party.drivers_ids, party.driver_id, party.driver);
 
   // ── Info Handoff (Risoluzione Relazioni Incrociate) ──────────────────────────
   // 1. Questa festa CEDE materiale? (Se ha valorizzato handoff_to_party_id)
   const isSource = !!party.handoff_to_party_id; 
-  const targetParty = party._handoffTargetParty; // Passato dal componente padre
+  const targetParty = party._handoffTargetParty;
 
   // 2. Questa festa RICEVE materiale? (Se un'altra festa la punta come destinazione)
   const isDestination = !!party._isHandoffDestination;
-  const sourceParty = party._handoffSourceParty; // Passato dal componente padre
+  const sourceParty = party._handoffSourceParty;
 
   return (
     <motion.div
@@ -137,7 +138,6 @@ export function PartyCard({
                 </span>
               )}
 
-              {/* 🍏 TAG APPLE: SE CEDE MATERIALE */}
               {isSource && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600 border border-indigo-100 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
@@ -145,7 +145,6 @@ export function PartyCard({
                 </span>
               )}
 
-              {/* 🍏 TAG APPLE: SE RICEVE MATERIALE */}
               {isDestination && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-50 text-violet-600 border border-violet-100 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
@@ -154,7 +153,7 @@ export function PartyCard({
               )}
             </div>
 
-            {/* 🍏 APPLE BOX - DETTAGLI DI CHI CEDE (Mostra la destinazione del viaggio della merce) */}
+            {/* DETTAGLI DI CHI CEDE (Output) */}
             {isSource && targetParty && (
               <div className="mb-3 px-3 py-2 bg-indigo-50/40 rounded-lg border border-indigo-100/60 text-xs text-indigo-700 flex items-center flex-wrap gap-1">
                 <span className="font-semibold uppercase tracking-wider text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded mr-1">Output</span>
@@ -164,7 +163,7 @@ export function PartyCard({
               </div>
             )}
 
-            {/* 🍏 APPLE BOX - DETTAGLI DI CHI RICEVE (Mostra da dove proviene la merce) */}
+            {/* DETTAGLI DI CHI RICEVE (Input) */}
             {isDestination && sourceParty && (
               <div className="mb-3 px-3 py-2 bg-violet-50/40 rounded-lg border border-violet-100/60 text-xs text-violet-700 flex items-center flex-wrap gap-1">
                 <span className="font-semibold uppercase tracking-wider text-[10px] bg-violet-600 text-white px-1.5 py-0.5 rounded mr-1">Input</span>
@@ -183,7 +182,7 @@ export function PartyCard({
               </div>
             )}
 
-            {/* Info griglia */}
+            {/* Info griglia (Rimappata a 4 colonne per ottimizzare lo spazio con tutti i ruoli) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
               <div className="flex items-center space-x-2">
                 <Calendar className="w-4 h-4 text-muted-foreground" />
@@ -192,37 +191,56 @@ export function PartyCard({
                   {new Date(party.data + "T00:00:00").toLocaleDateString("it-IT")}
                 </span>
               </div>
+              
               <div className="flex items-center space-x-2">
                 <MapPin className="w-4 h-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Luogo:</span>
                 <span className="font-medium text-foreground">{party.luogo}</span>
               </div>
 
-              {/* Animatori */}
-              <div className="flex items-start space-x-2 md:col-span-2 lg:col-span-1">
-                <User className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                <span className="text-muted-foreground shrink-0">
-                  {animatoriIds.length > 1 ? "Animatori:" : "Animatore:"}
-                </span>
-                <span className={`font-medium ${animatoriNomi.length === 0 ? "text-muted-foreground italic" : "text-foreground"}`}>
-                  {animatoriLabel}
-                </span>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Users className="w-4 h-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Magazziniere:</span>
-                <span className="font-medium text-foreground">
-                  {party.magazziniere?.nome || "Non assegnato"}
-                </span>
-              </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 lg:col-span-2">
                 <Package className="w-4 h-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Scaffali:</span>
                 <span className="font-medium text-foreground">
                   {party.shelves
                     ? party.shelves.split(",").map((s) => `#${s.trim()}`).join(", ")
                     : "Nessuno"}
+                </span>
+              </div>
+
+              {/* Responsabili */}
+              <div className="flex items-start space-x-2">
+                <UserCheck className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                <span className="text-muted-foreground shrink-0">Resp:</span>
+                <span className={`font-medium ${responsabiliNomi.length === 0 ? "text-muted-foreground italic" : "text-foreground"}`}>
+                  {responsabiliNomi.length > 0 ? responsabiliNomi.join(", ") : "Non assegnato"}
+                </span>
+              </div>
+
+              {/* Animatori */}
+              <div className="flex items-start space-x-2">
+                <User className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                <span className="text-muted-foreground shrink-0">Animatori:</span>
+                <span className={`font-medium ${animatoriNomi.length === 0 ? "text-muted-foreground italic" : "text-foreground"}`}>
+                  {animatoriNomi.length > 0 ? animatoriNomi.join(", ") : "Non assegnati"}
+                </span>
+              </div>
+
+              {/* Drivers (Autisti) */}
+              <div className="flex items-start space-x-2">
+                <Car className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                <span className="text-muted-foreground shrink-0">Driver:</span>
+                <span className={`font-medium ${driversNomi.length === 0 ? "text-muted-foreground italic" : "text-foreground"}`}>
+                  {driversNomi.length > 0 ? driversNomi.join(", ") : "Non assegnato"}
+                </span>
+              </div>
+
+              {/* Magazziniere */}
+              <div className="flex items-center space-x-2">
+                <Users className="w-4 h-4 text-muted-foreground" />
+                <span className="text-muted-foreground shrink-0">Magazz:</span>
+                <span className="font-medium text-foreground">
+                  {party.magazziniere?.nome || "Non assegnato"}
                 </span>
               </div>
             </div>

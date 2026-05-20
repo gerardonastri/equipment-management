@@ -141,7 +141,7 @@ export default function PartiesPage() {
   const [partyMaterials, setPartyMaterials] = useState([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
   const [newParty, setNewParty] = useState({
-    nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [],
+    nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], responsabili_ids: [], drivers_ids: [], stato: "iniziale", note: "", shelves: [],
     handoff_to_party_id: null, handoff_macro_ids: [],
   });
   const [selectedMaterials, setSelectedMaterials] = useState([]);
@@ -151,6 +151,7 @@ export default function PartiesPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyParty, setHistoryParty] = useState(null);
   const [partyAlerts, setPartyAlerts] = useState({});
+  const [partiesFor3Days, setPartiesFor3Days] = useState([]);
 
   const { data, error, isLoading, mutate } = useSWR("parties-data", fetcher, {
     revalidateOnFocus: false,
@@ -159,6 +160,32 @@ export default function PartiesPage() {
 
   const users = data?.users || [];
   const macroCategories = data?.macroCategories || [];
+  
+  // ── Carica feste dei 3 giorni successivi per l'handoff nel form ──
+  useEffect(() => {
+    if (!selectedDate) return;
+    const loadPartiesFor3Days = async () => {
+      try {
+        const dateObj = new Date(selectedDate + "T00:00:00");
+        const dates = [
+          selectedDate,
+          new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        ];
+        
+        // Carica tutte le feste dei 3 giorni
+        const allPartiesFor3Days = await Promise.all(dates.map((d) => getPartiesByDate(d)));
+        const combined = allPartiesFor3Days.flat();
+        setPartiesFor3Days(combined);
+        console.log("[v0] Feste caricate per 3 giorni:", { dates, count: combined.length, parties: combined });
+      } catch (err) {
+        console.error("[v0] Errore caricamento feste 3 giorni:", err);
+        setPartiesFor3Days([]);
+      }
+    };
+    
+    loadPartiesFor3Days();
+  }, [selectedDate]);
   
   // ── Modifica qui: passiamo l'array nella nostra funzione ──
   const rawParties = syncedParties ?? [];
@@ -288,10 +315,10 @@ export default function PartiesPage() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await createParty({ ...newParty, selectedMaterials, selectedSingleItems, animatori_ids: newParty.animatori_ids || [] });
+      await createParty({ ...newParty, selectedMaterials, selectedSingleItems, animatori_ids: newParty.animatori_ids || [], responsabili_ids: newParty.responsabili_ids || [], drivers_ids: newParty.drivers_ids || [] });
       // Chiudi subito il form per feedback immediato
       setShowFormModal(false);
-      setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
+      setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], responsabili_ids: [], drivers_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
       setSelectedMaterials([]);
       setSelectedSingleItems([]);
       toast("Festa creata con successo!", "success");
@@ -310,6 +337,8 @@ export default function PartiesPage() {
       ...party,
       shelves:             party.shelves ? party.shelves.split(",").filter(Boolean).map((s) => s.trim()) : [],
       animatori_ids:       Array.isArray(party.animatori_ids) ? party.animatori_ids : [],
+      responsabili_ids:    Array.isArray(party.responsabili_ids) ? party.responsabili_ids : [],
+      drivers_ids:         Array.isArray(party.drivers_ids) ? party.drivers_ids : [],
       handoff_to_party_id: party.handoff_to_party_id || null,
       handoff_macro_ids:   Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [],
     });
@@ -328,7 +357,7 @@ export default function PartiesPage() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await updateParty(editParty.id, { ...editParty, selectedMaterials, animatori_ids: editParty.animatori_ids || [], handoff_to_party_id: editParty.handoff_to_party_id || null, handoff_macro_ids: editParty.handoff_macro_ids || [] });
+      await updateParty(editParty.id, { ...editParty, selectedMaterials, animatori_ids: editParty.animatori_ids || [], responsabili_ids: editParty.responsabili_ids || [], drivers_ids: editParty.drivers_ids || [], handoff_to_party_id: editParty.handoff_to_party_id || null, handoff_macro_ids: editParty.handoff_macro_ids || [] });
       setShowFormModal(false);
       setEditParty(null);
       setSelectedMaterials([]);
@@ -425,7 +454,7 @@ export default function PartiesPage() {
             <button
               onClick={() => {
                 setEditParty(null);
-                setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
+                setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], responsabili_ids: [], drivers_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
                 setSelectedMaterials([]);
                 setSelectedSingleItems([]);
                 setShowFormModal(true);
@@ -513,7 +542,8 @@ export default function PartiesPage() {
                     getStatusColor={getStatusColor}
                     getStatusText={getStatusText}
                     getStatusIcon={getStatusIcon}
-                    allUsers={users} // <── AGGIUNTO QUI!
+                    allUsers={users}
+                    partyAlerts={partyAlerts}
                   />
                 );
               })
@@ -560,7 +590,7 @@ export default function PartiesPage() {
             isSubmitting={isSubmitting}
             onSubmit={editParty ? handleUpdateParty : handleAddParty}
             onCancel={() => { setShowFormModal(false); setEditParty(null); setSelectedMaterials([]); setSelectedSingleItems([]); }}
-            allParties={parties}
+            allParties={partiesFor3Days}
             usedMacroIds={usedMacroIds}
             isLoadingMacros={isLoadingMacros}
             specialItemHierarchy={specialItemHierarchy}

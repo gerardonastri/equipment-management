@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShelfSelector } from "./shelf-selector";
 import {
   Star, Package, ChevronDown, ChevronRight, AlertCircle,
-  X, UserPlus, Users, ArrowRightLeft, Info, Loader2, AlertTriangle, RefreshCw,
+  X, UserPlus, Users, ArrowRightLeft, Info, Loader2, AlertTriangle, RefreshCw, Car, UserCheck
 } from "lucide-react";
 import { syncAnimatoriForParty } from "@/app/admin/parties/actions";
 
@@ -30,14 +30,19 @@ export function PartyFormModal({
   selectedSingleItems,
   onSingleItemToggle,
 }) {
-  const [isSpecial, setIsSpecial]         = useState(false);
+  const [isSpecial, setIsSpecial] = useState(false);
   const [expandedMacro, setExpandedMacro] = useState({});
-  const [expandedCat, setExpandedCat]     = useState({});
-  // Alert staff mancante — mostrato solo dopo il primo tentativo di submit
+  const [expandedCat, setExpandedCat] = useState({});
+  
+  // Alert staff mancante
   const [showStaffAlert, setShowStaffAlert] = useState(false);
+  
   // Sync animatori dal gestionale
   const [isSyncingAnimatori, setIsSyncingAnimatori] = useState(false);
-  const [syncInfo, setSyncInfo]                      = useState(null); // { added, unmatched }
+  const [syncInfo, setSyncInfo] = useState(null);
+  
+  // Feste dei 3 giorni successivi per l'handoff
+  const [handoffPartiesFor3Days, setHandoffPartiesFor3Days] = useState([]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -46,14 +51,17 @@ export function PartyFormModal({
       setExpandedCat({});
       setShowStaffAlert(false);
       setSyncInfo(null);
+      setHandoffPartiesFor3Days([]);
+    } else if (party?.data) {
+      // Quando il modal si apre, carica le feste dei 3 giorni successivi per l'handoff
+      loadHandoffPartiesFor3Days(party.data);
     }
-  }, [isOpen]);
+  }, [isOpen, party?.data]);
 
   if (!isOpen) return null;
 
-  // Sincronizza animatori dal gestionale Movida
   const handleSyncAnimatori = async () => {
-    if (!party.id) return; // non ancora salvata
+    if (!party.id) return;
     setIsSyncingAnimatori(true);
     setSyncInfo(null);
     try {
@@ -62,7 +70,6 @@ export function PartyFormModal({
         setSyncInfo({ error: result.error });
         return;
       }
-      // Aggiorna i chip nel form con i nuovi ids
       if (result.added > 0) {
         onPartyChange({ ...party, animatori_ids: result.animatori_ids });
       }
@@ -74,33 +81,80 @@ export function PartyFormModal({
     }
   };
 
-  // ── Multi-animatore ──────────────────────────────────────────────────────────
-  const animatoriIds     = Array.isArray(party.animatori_ids) ? party.animatori_ids : [];
+  // ── Carica feste dei 3 giorni successivi per l'handoff ──
+  const loadHandoffPartiesFor3Days = (baseDate) => {
+    try {
+      const dateObj = new Date(baseDate + "T00:00:00");
+      const dates = [
+        baseDate, // oggi
+        new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +1 giorno
+        new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +2 giorni
+      ];
+      
+      // Filtra allParties per i 3 giorni successivi (escludendo la festa corrente)
+      const partiesFor3Days = allParties.filter(
+        (p) => dates.includes(p.data) && p.id !== party.id && p.stato !== "scaricato_scaffale"
+      );
+      
+      setHandoffPartiesFor3Days(partiesFor3Days);
+    } catch (err) {
+      console.error("Error loading handoff parties for 3 days:", err);
+      setHandoffPartiesFor3Days([]);
+    }
+  };
+
+  // ── Filtri Utenti per Ruolo ────────────────────────────────────────────────
+  const responsabiliList = users.filter((u) => u.ruolo === "responsabile" || u.ruolo === "amministratore");
   const animatoriList    = users.filter((u) => u.ruolo === "animatore" || u.ruolo === "amministratore");
+  const driversList      = users.filter((u) => u.ruolo === "driver" || u.ruolo === "amministratore");
   const magazzinieriList = users.filter((u) => u.ruolo === "magazziniere" || u.ruolo === "amministratore");
 
-  const addAnimatore = (userId) => {
-    if (!userId || animatoriIds.includes(userId)) return;
-    onPartyChange({ ...party, animatori_ids: [...animatoriIds, userId] });
-  };
-  const removeAnimatore = (userId) =>
-    onPartyChange({ ...party, animatori_ids: animatoriIds.filter((id) => id !== userId) });
+  // ── Responsabili ──
+  const responsabiliIds = Array.isArray(party.responsabili_ids) ? party.responsabili_ids : [];
+  const selectedResponsabili = responsabiliIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
+  const availableResponsabili = responsabiliList.filter((u) => !responsabiliIds.includes(u.id));
 
-  const selectedAnimatori  = animatoriIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
+  const addResponsabile = (id) => {
+    if (id && !responsabiliIds.includes(id)) onPartyChange({ ...party, responsabili_ids: [...responsabiliIds, id] });
+  };
+  const removeResponsabile = (id) => {
+    onPartyChange({ ...party, responsabili_ids: responsabiliIds.filter((rid) => rid !== id) });
+  };
+
+  // ── Animatori ──
+  const animatoriIds = Array.isArray(party.animatori_ids) ? party.animatori_ids : [];
+  const selectedAnimatori = animatoriIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
   const availableAnimatori = animatoriList.filter((u) => !animatoriIds.includes(u.id));
 
-  // Staff mancante
-  const missingAnimatore   = animatoriIds.length === 0;
+  const addAnimatore = (id) => {
+    if (id && !animatoriIds.includes(id)) onPartyChange({ ...party, animatori_ids: [...animatoriIds, id] });
+  };
+  const removeAnimatore = (id) => {
+    onPartyChange({ ...party, animatori_ids: animatoriIds.filter((aid) => aid !== id) });
+  };
+
+  // ── Driver ──
+  const driversIds = Array.isArray(party.drivers_ids) ? party.drivers_ids : [];
+  const selectedDrivers = driversIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
+  const availableDrivers = driversList.filter((u) => !driversIds.includes(u.id));
+
+  const addDriver = (id) => {
+    if (id && !driversIds.includes(id)) onPartyChange({ ...party, drivers_ids: [...driversIds, id] });
+  };
+  const removeDriver = (id) => {
+    onPartyChange({ ...party, drivers_ids: driversIds.filter((did) => did !== id) });
+  };
+
+  // ── Controlli Staff ──
+  const missingResponsabile = responsabiliIds.length === 0;
   const missingMagazziniere = !party.magazziniere_id;
 
   // ── Handoff ──────────────────────────────────────────────────────────────────
-  // FIX: era truthy anche con "" (stringa vuota) — ora controlliamo esplicitamente
-  const handoffEnabled  = !!(party.handoff_to_party_id);
+  const handoffEnabled = !!(party.handoff_to_party_id);
   const handoffMacroIds = Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [];
 
-  const handoffCandidates = allParties.filter(
-    (p) => p.id !== party.id && p.data === party.data && p.stato !== "scaricato_scaffale"
-  );
+  // Usa le feste caricate dei 3 giorni successivi
+  const handoffCandidates = handoffPartiesFor3Days;
 
   const toggleHandoffMacro = (macroId) => {
     const next = handoffMacroIds.includes(macroId)
@@ -113,21 +167,15 @@ export function PartyFormModal({
 
   // ── Submit con intercept per alert staff ────────────────────────────────────
   const handleSubmitWithAlert = (e) => {
-    if (missingAnimatore || missingMagazziniere) {
+    if (missingResponsabile || missingMagazziniere) {
       e.preventDefault();
       setShowStaffAlert(true);
-      // Scroll al banner
       setTimeout(() => {
         document.getElementById("staff-alert-banner")?.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 50);
       return;
     }
     onSubmit(e);
-  };
-
-  const handleConfirmAnyway = (e) => {
-    setShowStaffAlert(false);
-    onSubmit({ preventDefault: () => {}, target: e.target });
   };
 
   return (
@@ -183,18 +231,58 @@ export function PartyFormModal({
             />
           </div>
 
-          {/* ── Animatori (multi) ── */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
+          {/* ── RESPONSABILI (Multi) ── */}
+          <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg">
+            <label className="block text-sm font-medium text-indigo-900 mb-2">
               <span className="flex items-center gap-1.5">
-                <Users className="w-4 h-4" /> Animatori
-                {missingAnimatore && (
+                <UserCheck className="w-4 h-4 text-indigo-600" /> Responsabili evento
+                {missingResponsabile && (
                   <span className="text-xs text-amber-600 font-normal ml-1">(nessuno assegnato)</span>
                 )}
               </span>
             </label>
 
-            {/* Chip */}
+            {selectedResponsabili.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {selectedResponsabili.map((u) => (
+                  <span key={u.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-medium">
+                    {u.nome}
+                    <button type="button" onClick={() => removeResponsabile(u.id)} className="hover:text-indigo-900 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) { addResponsabile(e.target.value); e.target.value = ""; } }}
+                className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 text-sm ${
+                  showStaffAlert && missingResponsabile ? "border-amber-400 bg-amber-50" : "border-indigo-200 bg-white"
+                }`}
+              >
+                <option value="">
+                  {availableResponsabili.length === 0
+                    ? "Tutti i responsabili assegnati"
+                    : responsabiliIds.length === 0 ? "Aggiungi responsabile..." : "Aggiungi un altro responsabile..."}
+                </option>
+                {availableResponsabili.map((u) => (
+                  <option key={u.id} value={u.id}>{u.nome}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* ── ANIMATORI (Multi) ── */}
+          <div className="p-3 bg-surface border border-border rounded-lg">
+            <label className="block text-sm font-medium text-foreground mb-2">
+              <span className="flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-primary" /> Animatori
+              </span>
+            </label>
+
             {selectedAnimatori.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {selectedAnimatori.map((u) => (
@@ -208,30 +296,21 @@ export function PartyFormModal({
               </div>
             )}
 
-            {/* Dropdown */}
-            <div className="flex gap-2">
-              <select
-                value=""
-                onChange={(e) => { if (e.target.value) { addAnimatore(e.target.value); e.target.value = ""; } }}
-                className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm ${
-                  showStaffAlert && missingAnimatore ? "border-amber-400 bg-amber-50" : "border-input"
-                }`}
-              >
-                <option value="">
-                  {availableAnimatori.length === 0
-                    ? "Tutti gli animatori assegnati"
-                    : animatoriIds.length === 0 ? "Aggiungi animatore..." : "Aggiungi un altro animatore..."}
-                </option>
-                {availableAnimatori.map((u) => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
-                ))}
-              </select>
-              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0">
-                <UserPlus className="w-4 h-4" />
-              </div>
-            </div>
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) { addAnimatore(e.target.value); e.target.value = ""; } }}
+              className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+            >
+              <option value="">
+                {availableAnimatori.length === 0
+                  ? "Tutti gli animatori assegnati"
+                  : animatoriIds.length === 0 ? "Aggiungi animatore..." : "Aggiungi un altro animatore..."}
+              </option>
+              {availableAnimatori.map((u) => (
+                <option key={u.id} value={u.id}>{u.nome}</option>
+              ))}
+            </select>
 
-            {/* Sync dal gestionale — solo per feste già salvate con external_id */}
             {party.id && party.external_id && (
               <div className="mt-2">
                 <button
@@ -268,7 +347,44 @@ export function PartyFormModal({
             )}
           </div>
 
-          {/* Magazziniere */}
+          {/* ── DRIVER (Multi) ── */}
+          <div className="p-3 bg-slate-50/50 border border-slate-200 rounded-lg">
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              <span className="flex items-center gap-1.5">
+                <Car className="w-4 h-4 text-slate-500" /> Driver (Autisti)
+              </span>
+            </label>
+
+            {selectedDrivers.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {selectedDrivers.map((u) => (
+                  <span key={u.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-200 text-slate-700 rounded-full text-sm font-medium">
+                    {u.nome}
+                    <button type="button" onClick={() => removeDriver(u.id)} className="hover:text-slate-900 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) { addDriver(e.target.value); e.target.value = ""; } }}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400 text-sm bg-white"
+            >
+              <option value="">
+                {availableDrivers.length === 0
+                  ? "Tutti i driver assegnati"
+                  : driversIds.length === 0 ? "Aggiungi driver..." : "Aggiungi un altro driver..."}
+              </option>
+              {availableDrivers.map((u) => (
+                <option key={u.id} value={u.id}>{u.nome}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* ── MAGAZZINIERE ── */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
               Magazziniere
@@ -290,9 +406,9 @@ export function PartyFormModal({
             </select>
           </div>
 
-          {/* ── Alert staff mancante ── */}
+          {/* ── ALERT STAFF MANCANTE ── */}
           <AnimatePresence>
-            {showStaffAlert && (missingAnimatore || missingMagazziniere) && (
+            {showStaffAlert && (missingResponsabile || missingMagazziniere) && (
               <motion.div
                 id="staff-alert-banner"
                 initial={{ opacity: 0, height: 0 }}
@@ -306,7 +422,7 @@ export function PartyFormModal({
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-amber-800">Staff non completo</p>
                       <ul className="text-xs text-amber-700 mt-1 space-y-0.5">
-                        {missingAnimatore   && <li>• Nessun animatore assegnato</li>}
+                        {missingResponsabile && <li>• Nessun <strong>responsabile</strong> assegnato (necessario per firmare i check e il passaggio)</li>}
                         {missingMagazziniere && <li>• Nessun magazziniere assegnato</li>}
                       </ul>
                       <p className="text-xs text-amber-600 mt-2">
@@ -363,7 +479,7 @@ export function PartyFormModal({
             />
           </div>
 
-          {/* ── Materiale ── */}
+          {/* ── MATERIALE ── */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="block text-sm font-medium text-foreground flex items-center gap-2">
@@ -503,8 +619,7 @@ export function PartyFormModal({
               type="button"
               onClick={() => onPartyChange({
                 ...party,
-                handoff_to_party_id: handoffEnabled ? null : null, // null → null disabilita, stringa → abilita col select
-                // trick: usiamo un sentinel per "abilitato ma senza festa selezionata"
+                handoff_to_party_id: handoffEnabled ? null : null, // null → null disabilita
                 _handoffOpen: !handoffEnabled,
               })}
               className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${(handoffEnabled || party._handoffOpen) ? "bg-violet-50 border-b border-violet-100" : "bg-surface hover:bg-muted/40"}`}
@@ -517,7 +632,7 @@ export function PartyFormModal({
                   Passaggio Materiale a un'altra Festa
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Il magazziniere salta il controllo finale/iniziale — l'animatore gestisce il passaggio.
+                  Il magazziniere salta il controllo finale/iniziale — il responsabile gestisce il passaggio.
                 </p>
               </div>
               <div className={`w-11 h-6 rounded-full transition-colors shrink-0 relative ${(handoffEnabled || party._handoffOpen) ? "bg-violet-500" : "bg-gray-200"}`}>

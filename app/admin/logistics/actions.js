@@ -18,7 +18,7 @@ export async function getLogisticsByDate(date) {
     .from("parties")
     .select(`
       id, external_id, nome, luogo, data, ora_inizio, servizi, cliente, stato,
-      animatori_ids,
+      animatori_ids, responsabili_ids,
       animatore:animatore_id(id, nome),
       magazziniere:magazziniere_id(id, nome)
     `)
