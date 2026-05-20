@@ -4,12 +4,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: equipment-app
+    container_name: equipment-db-v18
     restart: always
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgresql://admin:password_sicura@db:5432/equipment_management
+      - DATABASE_URL=postgresql://admin:password_sicura@equipment-db-v18:5432/equipment_management
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     depends_on:
@@ -17,7 +17,7 @@ services:
 
   # IL DATABASE
   db:
-    image: postgres:16-alpine
+    image: postgres:latest
     container_name: equipment-db
     restart: always
     environment:
@@ -27,7 +27,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_nuovo:/var/lib/postgresql/data
 
   # INTERFACCIA DB (Opzionale)
   pgadmin:
@@ -42,4 +42,5 @@ services:
       - db
 
 volumes:
-  postgres_data:
+
+  postgres_data_nuovo:
