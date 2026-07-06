@@ -33,15 +33,9 @@ export function PartyFormModal({
   const [isSpecial, setIsSpecial] = useState(false);
   const [expandedMacro, setExpandedMacro] = useState({});
   const [expandedCat, setExpandedCat] = useState({});
-  
-  // Alert staff mancante
   const [showStaffAlert, setShowStaffAlert] = useState(false);
-  
-  // Sync animatori dal gestionale
   const [isSyncingAnimatori, setIsSyncingAnimatori] = useState(false);
   const [syncInfo, setSyncInfo] = useState(null);
-  
-  // Feste dei 3 giorni successivi per l'handoff
   const [handoffPartiesFor3Days, setHandoffPartiesFor3Days] = useState([]);
 
   useEffect(() => {
@@ -53,7 +47,6 @@ export function PartyFormModal({
       setSyncInfo(null);
       setHandoffPartiesFor3Days([]);
     } else if (party?.data) {
-      // Quando il modal si apre, carica le feste dei 3 giorni successivi per l'handoff
       loadHandoffPartiesFor3Days(party.data);
     }
   }, [isOpen, party?.data]);
@@ -81,17 +74,15 @@ export function PartyFormModal({
     }
   };
 
-  // ── Carica feste dei 3 giorni successivi per l'handoff ──
   const loadHandoffPartiesFor3Days = (baseDate) => {
     try {
       const dateObj = new Date(baseDate + "T00:00:00");
       const dates = [
-        baseDate, // oggi
-        new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +1 giorno
-        new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +2 giorni
+        baseDate,
+        new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       ];
       
-      // Filtra allParties per i 3 giorni successivi (escludendo la festa corrente)
       const partiesFor3Days = allParties.filter(
         (p) => dates.includes(p.data) && p.id !== party.id && p.stato !== "scaricato_scaffale"
       );
@@ -103,13 +94,11 @@ export function PartyFormModal({
     }
   };
 
-  // ── Filtri Utenti per Ruolo ────────────────────────────────────────────────
-  const responsabiliList = users.filter((u) => u.ruolo === "responsabile" || u.ruolo === "amministratore");
-  const animatoriList    = users.filter((u) => u.ruolo === "animatore" || u.ruolo === "amministratore");
-  const driversList      = users.filter((u) => u.ruolo === "driver" || u.ruolo === "amministratore");
-  const magazzinieriList = users.filter((u) => u.ruolo === "magazziniere" || u.ruolo === "amministratore");
+  const responsabiliList = users;
+  const animatoriList    = users;
+  const driversList      = users;
+  const magazzinieriList = users;
 
-  // ── Responsabili ──
   const responsabiliIds = Array.isArray(party.responsabili_ids) ? party.responsabili_ids : [];
   const selectedResponsabili = responsabiliIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
   const availableResponsabili = responsabiliList.filter((u) => !responsabiliIds.includes(u.id));
@@ -121,7 +110,6 @@ export function PartyFormModal({
     onPartyChange({ ...party, responsabili_ids: responsabiliIds.filter((rid) => rid !== id) });
   };
 
-  // ── Animatori ──
   const animatoriIds = Array.isArray(party.animatori_ids) ? party.animatori_ids : [];
   const selectedAnimatori = animatoriIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
   const availableAnimatori = animatoriList.filter((u) => !animatoriIds.includes(u.id));
@@ -133,7 +121,6 @@ export function PartyFormModal({
     onPartyChange({ ...party, animatori_ids: animatoriIds.filter((aid) => aid !== id) });
   };
 
-  // ── Driver ──
   const driversIds = Array.isArray(party.drivers_ids) ? party.drivers_ids : [];
   const selectedDrivers = driversIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
   const availableDrivers = driversList.filter((u) => !driversIds.includes(u.id));
@@ -145,15 +132,11 @@ export function PartyFormModal({
     onPartyChange({ ...party, drivers_ids: driversIds.filter((did) => did !== id) });
   };
 
-  // ── Controlli Staff ──
   const missingResponsabile = responsabiliIds.length === 0;
   const missingMagazziniere = !party.magazziniere_id;
 
-  // ── Handoff ──────────────────────────────────────────────────────────────────
   const handoffEnabled = !!(party.handoff_to_party_id);
   const handoffMacroIds = Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [];
-
-  // Usa le feste caricate dei 3 giorni successivi
   const handoffCandidates = handoffPartiesFor3Days;
 
   const toggleHandoffMacro = (macroId) => {
@@ -165,7 +148,6 @@ export function PartyFormModal({
 
   const handoffableMacros = macroCategories.filter((m) => selectedMaterials.includes(m.id));
 
-  // ── Submit con intercept per alert staff ────────────────────────────────────
   const handleSubmitWithAlert = (e) => {
     if (missingResponsabile || missingMagazziniere) {
       e.preventDefault();
@@ -195,7 +177,6 @@ export function PartyFormModal({
 
         <form onSubmit={handleSubmitWithAlert} className="space-y-4">
 
-          {/* Nome + Data */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">Nome Festa</label>
@@ -219,7 +200,6 @@ export function PartyFormModal({
             </div>
           </div>
 
-          {/* Luogo */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Luogo</label>
             <input
@@ -231,7 +211,6 @@ export function PartyFormModal({
             />
           </div>
 
-          {/* ── RESPONSABILI (Multi) ── */}
           <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg">
             <label className="block text-sm font-medium text-indigo-900 mb-2">
               <span className="flex items-center gap-1.5">
@@ -269,13 +248,12 @@ export function PartyFormModal({
                     : responsabiliIds.length === 0 ? "Aggiungi responsabile..." : "Aggiungi un altro responsabile..."}
                 </option>
                 {availableResponsabili.map((u) => (
-                  <option key={u.id} value={u.id}>{u.nome}</option>
+                  <option key={u.id} value={u.id}>{u.nome} ({u.ruolo})</option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* ── ANIMATORI (Multi) ── */}
           <div className="p-3 bg-surface border border-border rounded-lg">
             <label className="block text-sm font-medium text-foreground mb-2">
               <span className="flex items-center gap-1.5">
@@ -307,7 +285,7 @@ export function PartyFormModal({
                   : animatoriIds.length === 0 ? "Aggiungi animatore..." : "Aggiungi un altro animatore..."}
               </option>
               {availableAnimatori.map((u) => (
-                <option key={u.id} value={u.id}>{u.nome}</option>
+                <option key={u.id} value={u.id}>{u.nome} ({u.ruolo})</option>
               ))}
             </select>
 
@@ -347,7 +325,6 @@ export function PartyFormModal({
             )}
           </div>
 
-          {/* ── DRIVER (Multi) ── */}
           <div className="p-3 bg-slate-50/50 border border-slate-200 rounded-lg">
             <label className="block text-sm font-medium text-slate-700 mb-2">
               <span className="flex items-center gap-1.5">
@@ -379,12 +356,11 @@ export function PartyFormModal({
                   : driversIds.length === 0 ? "Aggiungi driver..." : "Aggiungi un altro driver..."}
               </option>
               {availableDrivers.map((u) => (
-                <option key={u.id} value={u.id}>{u.nome}</option>
+                <option key={u.id} value={u.id}>{u.nome} ({u.ruolo})</option>
               ))}
             </select>
           </div>
 
-          {/* ── MAGAZZINIERE ── */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
               Magazziniere
@@ -401,12 +377,11 @@ export function PartyFormModal({
             >
               <option value="">Seleziona magazziniere...</option>
               {magazzinieriList.map((u) => (
-                <option key={u.id} value={u.id}>{u.nome}</option>
+                <option key={u.id} value={u.id}>{u.nome} ({u.ruolo})</option>
               ))}
             </select>
           </div>
 
-          {/* ── ALERT STAFF MANCANTE ── */}
           <AnimatePresence>
             {showStaffAlert && (missingResponsabile || missingMagazziniere) && (
               <motion.div
@@ -451,7 +426,6 @@ export function PartyFormModal({
             )}
           </AnimatePresence>
 
-          {/* Stato */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Stato</label>
             <select
@@ -467,7 +441,6 @@ export function PartyFormModal({
             </select>
           </div>
 
-          {/* Note */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Note</label>
             <textarea
@@ -479,7 +452,6 @@ export function PartyFormModal({
             />
           </div>
 
-          {/* ── MATERIALE ── */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="block text-sm font-medium text-foreground flex items-center gap-2">
@@ -613,13 +585,12 @@ export function PartyFormModal({
             </AnimatePresence>
           </div>
 
-          {/* ── PASSAGGIO MATERIALE (Handoff) ── */}
           <div className="border border-border rounded-xl overflow-hidden">
             <button
               type="button"
               onClick={() => onPartyChange({
                 ...party,
-                handoff_to_party_id: handoffEnabled ? null : null, // null → null disabilita
+                handoff_to_party_id: handoffEnabled ? null : null,
                 _handoffOpen: !handoffEnabled,
               })}
               className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${(handoffEnabled || party._handoffOpen) ? "bg-violet-50 border-b border-violet-100" : "bg-surface hover:bg-muted/40"}`}
@@ -645,7 +616,6 @@ export function PartyFormModal({
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                   <div className="p-4 space-y-4 bg-violet-50/30">
 
-                    {/* Festa destinazione */}
                     <div>
                       <label className="block text-xs font-semibold text-violet-800 mb-1.5 uppercase tracking-wide">
                         Festa destinazione *
@@ -671,7 +641,6 @@ export function PartyFormModal({
                       )}
                     </div>
 
-                    {/* Macro da passare */}
                     {handoffableMacros.length > 0 ? (
                       <div>
                         <label className="block text-xs font-semibold text-violet-800 mb-1 uppercase tracking-wide">
@@ -717,7 +686,6 @@ export function PartyFormModal({
             </AnimatePresence>
           </div>
 
-          {/* Scaffali */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Scaffali</label>
             <ShelfSelector
@@ -730,7 +698,6 @@ export function PartyFormModal({
             />
           </div>
 
-          {/* Azioni */}
           <div className="flex space-x-3 pt-4">
             <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors">
               Annulla

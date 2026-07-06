@@ -19,7 +19,6 @@ export async function getInventoryItems() {
     if (error) throw error;
 
     return (data || []).map((item) => {
-      // Solo le losses NON resolved contano per i filtri attivi
       const activeLossTypes = new Set(
         (item.inventory_losses || [])
           .filter((l) => !l.resolved)
@@ -76,10 +75,6 @@ export async function getItemDetails(itemId) {
   }
 }
 
-/**
- * Rimuove TUTTE le segnalazioni di un tipo specifico per un item
- * marcandole come resolved (non cancella per mantenere lo storico).
- */
 export async function removeLossByType(itemId, tipo) {
   try {
     const supabase = await createClient();
@@ -155,9 +150,6 @@ export async function updateInventoryItem(id, formData) {
 
     if (error) throw error;
 
-    // Se l'item viene rimesso come disponibile (materiale_mancante = false),
-    // segna tutte le sue losses come resolved per non impattare sul check
-    // e sulle segnalazioni attive — le righe rimangono per lo storico.
     if (!formData.materiale_mancante) {
       await supabase
         .from("inventory_losses")
@@ -228,11 +220,9 @@ export async function uploadInventoryImage(itemId, file) {
 }
 
 export async function getPartyDataForShelf(shelfId) {
-  "use server";
   try {
     const supabase = await createClient();
 
-    // 1. Recupera le feste attive (con animatore per non far crashare la UI)
     const { data: parties, error: partyError } = await supabase
       .from("parties")
       .select(`
@@ -244,7 +234,6 @@ export async function getPartyDataForShelf(shelfId) {
 
     if (partyError) throw partyError;
 
-    // 2. Filtra la festa usando la TUA nuova logica case-insensitive
     const matchingParties = (parties || []).filter((p) => {
       const shelfList = (p.shelves || "")
         .split(",")
@@ -257,7 +246,6 @@ export async function getPartyDataForShelf(shelfId) {
       return { error: "Nessuna festa trovata per questo scaffale" };
     }
 
-    // 3. Se ci sono più feste, prendi quella di oggi o la più vicina (vecchia logica sicura)
     let party;
     if (matchingParties.length === 1) {
       party = matchingParties[0];
@@ -281,15 +269,14 @@ export async function getPartyDataForShelf(shelfId) {
       }
     }
 
-    // 4. Carica i check completati
+    // MODIFICA IMPORTANTE: recuperiamo anche i check_items per la ripresa del check
     const { data: checks, error: checksError } = await supabase
       .from("checks")
-      .select("*")
+      .select("*, check_items(inventory_id, stato)")
       .eq("party_id", party.id);
 
     if (checksError) throw checksError;
 
-    // 5. Carica la gerarchia del materiale (FONDAMENTALE per page.jsx e lo scan NFC)
     const { data: partyMaterial, error: materialError } = await supabase
       .from("party_inventory")
       .select(`
@@ -342,7 +329,6 @@ export async function getPartyDataForShelf(shelfId) {
       materialHierarchy.push(macroData);
     }
 
-    // 6. Carica le losses non risolte
     const { data: existingLosses } = await supabase
       .from("inventory_losses")
       .select("inventory_id, tipo, note, valore_stimato")
@@ -354,7 +340,6 @@ export async function getPartyDataForShelf(shelfId) {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    // 7. RESTITUISCE TUTTO NELLA STRUTTURA ESATTA CHE page.jsx SI ASPETTA
     return {
       party,
       checks: checks || [],
@@ -368,22 +353,9 @@ export async function getPartyDataForShelf(shelfId) {
   }
 }
 
-/**
- * Duplica una macro categoria con tutta la gerarchia (categorie + sotto).
- *
- * @param macroId      - ID della macro da duplicare
- * @param newMacroName - Nome della nuova macro (scelto dall'utente)
- * @param suffix       - Suffisso da appendere ai nomi figli es. " v2", " dup"
- *
- * Strategia suffix sulle lettere:
- * Il codice prefix (es. "AC-") viene rilevato automaticamente dal nome della macro originale.
- * Se il nuovo nome ha un prefix diverso (es. "BC-"), viene propagato a tutti i figli.
- * Altrimenti viene semplicemente aggiunto il suffix.
- */
 export async function duplicateInventoryItem(macroId, newMacroName, suffix = " v2") {
   const supabase = await createClient();
 
-  // 1. Carica la macro originale
   const { data: macro, error: macroError } = await supabase
     .from("inventory_items")
     .select("*")
@@ -392,14 +364,10 @@ export async function duplicateInventoryItem(macroId, newMacroName, suffix = " v
 
   if (macroError || !macro) return { error: "Macro non trovata." };
 
-  // Rileva il prefix del nome originale (tutto ciò che precede il primo spazio o le prime lettere+trattino)
-  // Es. "AUDIO (Mini Club) AC-" → prefix "AC-", "Baby SPA AC-" → prefix "AC-"
-  // Cerca pattern tipo "XX-" o "XX-NNN" alla fine del nome
   const oldPrefix = extractPrefix(macro.name);
   const newPrefix = extractPrefix(newMacroName);
   const prefixChanged = oldPrefix && newPrefix && oldPrefix !== newPrefix;
 
-  // 2. Crea la nuova macro
   const { data: newMacro, error: insertMacroError } = await supabase
     .from("inventory_items")
     .insert([{
@@ -414,7 +382,6 @@ export async function duplicateInventoryItem(macroId, newMacroName, suffix = " v
 
   if (insertMacroError) return { error: insertMacroError.message };
 
-  // 3. Carica tutte le categorie della macro originale
   const { data: categories } = await supabase
     .from("inventory_items")
     .select("*")
@@ -425,7 +392,6 @@ export async function duplicateInventoryItem(macroId, newMacroName, suffix = " v
   for (const cat of categories || []) {
     const newCatName = renameItem(cat.name, oldPrefix, newPrefix, suffix, prefixChanged);
 
-    // Inserisci la categoria duplicata
     const { data: newCat, error: catErr } = await supabase
       .from("inventory_items")
       .insert([{
@@ -440,7 +406,6 @@ export async function duplicateInventoryItem(macroId, newMacroName, suffix = " v
 
     if (catErr) continue;
 
-    // 4. Carica e duplica tutti i sotto della categoria
     const { data: subs } = await supabase
       .from("inventory_items")
       .select("*")
@@ -465,29 +430,16 @@ export async function duplicateInventoryItem(macroId, newMacroName, suffix = " v
   return { success: true, newId: newMacro.id };
 }
 
-/**
- * Estrae il prefix tipo "AC-" o "ABC-" dalla fine del nome.
- * Es: "AUDIO (Mini Club) AG-" → "AG-"
- *     "Baby SPA AC-"          → "AC-"
- *     "Basket Grande"         → null
- */
 function extractPrefix(name) {
   const match = name?.match(/\b([A-Z]{2,4}-(?:\d+)?)\s*$/i);
   return match ? match[1].toUpperCase() : null;
 }
 
-/**
- * Rinomina un item figlio in base alla strategia:
- * - Se il prefix è cambiato (es. AC- → BC-), sostituisce il vecchio con il nuovo
- * - Altrimenti aggiunge il suffix al nome
- */
 function renameItem(name, oldPrefix, newPrefix, suffix, prefixChanged) {
   if (prefixChanged && oldPrefix && name.toUpperCase().includes(oldPrefix.toUpperCase())) {
-    // Sostituisci il vecchio prefix con il nuovo (case-insensitive)
     const regex = new RegExp(oldPrefix.replace(/[-]/g, "\\-"), "gi");
     return name.replace(regex, newPrefix);
   }
-  // Aggiungi suffix prima del codice se presente, altrimenti in fondo
   const codeMatch = name.match(/\s+([A-Z]{2,4}-\d+)\s*$/i);
   if (codeMatch) {
     return name.slice(0, name.lastIndexOf(codeMatch[0])) + suffix + codeMatch[0];
@@ -495,14 +447,6 @@ function renameItem(name, oldPrefix, newPrefix, suffix, prefixChanged) {
   return name + suffix;
 }
 
-/**
- * Aggiorna il prefix del codice su una macro e tutti i suoi discendenti.
- * Es: oldPrefix="AC-", newPrefix="BC-" aggiorna tutti i nomi che contengono "AC-"
- *
- * @param macroId   - ID della macro
- * @param oldPrefix - Vecchio prefix (es. "AC-")
- * @param newPrefix - Nuovo prefix (es. "BC-")
- */
 export async function updatePrefixForMacroAndChildren(macroId, oldPrefix, newPrefix) {
   const supabase = await createClient();
 
@@ -512,7 +456,6 @@ export async function updatePrefixForMacroAndChildren(macroId, oldPrefix, newPre
 
   const prefixRegex = new RegExp(oldPrefix.replace(/[-]/g, "\\-"), "gi");
 
-  // Carica tutti i discendenti (categorie + sotto) della macro
   const { data: cats } = await supabase
     .from("inventory_items")
     .select("id, name")
@@ -528,7 +471,6 @@ export async function updatePrefixForMacroAndChildren(macroId, oldPrefix, newPre
       updated++;
     }
 
-    // Sotto di questa categoria
     const { data: subs } = await supabase
       .from("inventory_items")
       .select("id, name")
@@ -548,12 +490,6 @@ export async function updatePrefixForMacroAndChildren(macroId, oldPrefix, newPre
   return { success: true, updated };
 }
 
-/**
- * Duplica un singolo item (categoria o sotto) con un suffix al nome.
- * - Per una categoria: duplica anche tutti i suoi sotto-elementi.
- * - Per un sotto: duplica solo se stesso.
- * Il parent_id rimane lo stesso dell'originale.
- */
 export async function duplicateSimpleItem(itemId, newName) {
   const supabase = await createClient();
 
@@ -565,7 +501,6 @@ export async function duplicateSimpleItem(itemId, newName) {
 
   if (fetchErr || !original) return { error: "Elemento non trovato." };
 
-  // Inserisci la copia dell'item
   const { data: newItem, error: insertErr } = await supabase
     .from("inventory_items")
     .insert([{
@@ -580,7 +515,6 @@ export async function duplicateSimpleItem(itemId, newName) {
 
   if (insertErr) return { error: insertErr.message };
 
-  // Se è una categoria, duplica anche tutti i sotto
   if (original.type === "categoria") {
     const { data: subs } = await supabase
       .from("inventory_items")
@@ -590,7 +524,6 @@ export async function duplicateSimpleItem(itemId, newName) {
       .order("name");
 
     if (subs?.length) {
-      // Applica lo stesso suffix che è stato usato sul nome della categoria
       const originalBase = original.name;
       const suffix = newName.slice(originalBase.length) || " copia";
 
@@ -608,10 +541,6 @@ export async function duplicateSimpleItem(itemId, newName) {
   revalidatePath("/admin/inventory");
   return { success: true, newId: newItem.id };
 }
-
-// -------------------------------------------------------------------------
-// --- FUNZIONI RECUPERATE DALLA VECCHIA VERSIONE (AGGIUNTE QUI SOTTO) ---
-// -------------------------------------------------------------------------
 
 export async function authenticateUser(name, code) {
   try {
@@ -637,6 +566,7 @@ export async function authenticateUser(name, code) {
   }
 }
 
+// MODIFICA IMPORTANTE: Aggiunto parametro existingCheckId
 export async function submitCheck(
   partyId,
   userId,
@@ -649,7 +579,8 @@ export async function submitCheck(
   partyName,
   materialSmarrito = false,
   itemsToMarkMissing = [],
-  itemsResults = [] // <--- AGGIUNTO PARAMETRO
+  itemsResults = [],
+  existingCheckId = null
 ) {
   try {
     const supabase = await createClient();
@@ -698,7 +629,7 @@ export async function submitCheck(
       .eq("type", checkType)
       .single();
 
-    if (existingCheck) {
+    if (existingCheck && !existingCheckId) {
       return { error: "Questo check è già stato completato" };
     }
 
@@ -711,11 +642,9 @@ export async function submitCheck(
     const partyUpdates = {};
 
     if (userRole === "animatore") {
-      // Legacy: aggiorna animatore_id se vuoto
       if (!currentParty?.animatore_id) {
         partyUpdates.animatore_id = userId;
       }
-      // Multi-animatore: aggiungi a animatori_ids se non già presente
       const currentAnimatoriIds = currentParty?.animatori_ids || [];
       if (!currentAnimatoriIds.includes(userId)) {
         partyUpdates.animatori_ids = [...currentAnimatoriIds, userId];
@@ -724,38 +653,54 @@ export async function submitCheck(
 
     if (userRole === "magazziniere" && !currentParty?.magazziniere_id) {
       partyUpdates.magazziniere_id = userId;
-      console.log("[v0] Auto-assigning magazziniere:", userId);
     }
 
     if (materialSmarrito && itemsToMarkMissing.length > 0) {
-      console.log("[v0] Marking items as missing:", itemsToMarkMissing);
-
       const { error: updateError } = await supabase
         .from("inventory_items")
         .update({ materiale_mancante: true })
         .in("id", itemsToMarkMissing);
 
-      if (updateError) {
-        console.error("[v0] Error marking items as missing:", updateError);
-      } else {
-        console.log("[v0] Successfully marked items as missing");
-      }
+      if (updateError) console.error("[v0] Error marking items as missing:", updateError);
     }
 
-    // 1. CREAZIONE DEL CHECK PRINCIPALE
-    const { data: insertedCheck, error: insertError } = await supabase
-      .from("checks")
-      .insert({
-        party_id: partyId,
-        user_id: userId,
-        type: checkType,
-        notes: `Check completato: ${checkedCount}/${totalItems} elementi verificati`,
-        materiale_smarrito: materialSmarrito,
-      })
-      .select()
-      .single();
+    let insertedCheck;
 
-    if (insertError) throw insertError;
+    if (existingCheckId) {
+      // 1A. AGGIORNAMENTO DI UN CHECK ESISTENTE (Sbloccato da Admin)
+      const { data: updatedCheck, error: updateCheckError } = await supabase
+        .from("checks")
+        .update({
+          user_id: userId,
+          notes: `Check aggiornato e sbloccato: ${checkedCount}/${totalItems} elementi verificati`,
+          materiale_smarrito: materialSmarrito,
+        })
+        .eq("id", existingCheckId)
+        .select()
+        .single();
+
+      if (updateCheckError) throw updateCheckError;
+      insertedCheck = updatedCheck;
+
+      // Svuota i vecchi item per far posto a quelli aggiornati
+      await supabase.from("check_items").delete().eq("check_id", existingCheckId);
+    } else {
+      // 1B. CREAZIONE DI UN NUOVO CHECK PRINCIPALE
+      const { data: newCheck, error: insertError } = await supabase
+        .from("checks")
+        .insert({
+          party_id: partyId,
+          user_id: userId,
+          type: checkType,
+          notes: `Check completato: ${checkedCount}/${totalItems} elementi verificati`,
+          materiale_smarrito: materialSmarrito,
+        })
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+      insertedCheck = newCheck;
+    }
 
     // 2. SALVATAGGIO DEI DETTAGLI MATERIALE NELLA TABELLA CHECK_ITEMS
     if (itemsResults && itemsResults.length > 0) {
@@ -768,17 +713,10 @@ export async function submitCheck(
         note: item.note || null
       }));
 
-      const { error: itemsError } = await supabase
-        .from("check_items")
-        .insert(checkItemsRows);
-
-      if (itemsError) {
-        console.error("[v0] Errore salvataggio righe check_items:", itemsError);
-      } else {
-        console.log(`[v0] Salvate ${checkItemsRows.length} righe in check_items`);
-      }
+      await supabase.from("check_items").insert(checkItemsRows);
     }
 
+    // Aggiornamento status party (solo se era un check nuovo per prudenza, o comunque procediamo)
     let newStatus = null;
     if (checkType === "deposito_scaffale") newStatus = "caricato_scaffale";
     else if (checkType === "scaffale_furgone") newStatus = "caricato_furgone";
@@ -788,26 +726,13 @@ export async function submitCheck(
     if (newStatus) partyUpdates.stato = newStatus;
 
     if (Object.keys(partyUpdates).length > 0) {
-      const { error: updateError } = await supabase
+      await supabase
         .from("parties")
         .update(partyUpdates)
         .eq("id", partyId);
-
-      if (updateError) console.error("[v0] Error updating party:", updateError);
-      else console.log("[v0] Party updated with:", partyUpdates);
     }
 
-    const { error: notificationError } = await supabase
-      .from("notifications")
-      .insert({
-        titolo: `Check Completato - ${checkType.replace(/_/g, " ")}`,
-        messaggio: `${userName} ha completato il check per la festa "${partyName}" (Scaffale ${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}${materialSmarrito ? " - MATERIALE SMARRITO" : ""}`,
-        tipo: "check",
-        letto: false,
-      });
-
-    if (notificationError) console.error("[v0] Error creating notification:", notificationError);
-
+    // Notifiche...
     const checkTypeNames = {
       deposito_scaffale: "Carico dal Deposito allo Scaffale",
       scaffale_furgone: "Carico dallo Scaffale al Furgone",
@@ -815,35 +740,37 @@ export async function submitCheck(
       scaffale_deposito: "Scarico dallo Scaffale al Deposito",
     };
 
+    await supabase.from("notifications").insert({
+      titolo: existingCheckId ? `Check Aggiornato - ${checkType.replace(/_/g, " ")}` : `Check Completato - ${checkType.replace(/_/g, " ")}`,
+      messaggio: `${userName} ha ${existingCheckId ? 'aggiornato' : 'completato'} il check per la festa "${partyName}" (Scaffale ${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}${materialSmarrito ? " - MATERIALE SMARRITO" : ""}`,
+      tipo: "check",
+      letto: false,
+    });
+
     try {
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
       await fetch(`${siteUrl}/api/telegram`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `${materialSmarrito ? "⚠️" : "✅"} Check completato!\n\nFesta: ${partyName}\nLocation: ${currentParty?.luogo || "N/D"}\nScaffale: ${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""}`,
+          message: `${materialSmarrito ? "⚠️" : "✅"} Check ${existingCheckId ? 'aggiornato' : 'completato'}!\n\nFesta: ${partyName}\nLocation: ${currentParty?.luogo || "N/D"}\nScaffale: ${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""}`,
         }),
       });
-      console.log("[v0] Telegram notification sent successfully");
     } catch (telegramError) {
       console.error("[v0] Error sending Telegram notification:", telegramError);
     }
 
-// ── Logica Handoff ──────────────────────────────────────────────────────
-    if (checkType === "furgone_scaffale") {
-      
+    // ── Logica Handoff ──
+    if (checkType === "furgone_scaffale" && !existingCheckId) {
       const { data: currentPartyFull } = await supabase
         .from("parties")
         .select("handoff_to_party_id, handoff_macro_ids")
         .eq("id", partyId)
         .single();
 
-      // SE QUESTA È LA PRIMA FESTA CHE SCARICA SULLO SCAFFALE "VIRTUALE"
       if (currentPartyFull?.handoff_to_party_id && currentPartyFull.handoff_macro_ids?.length > 0) {
         const destPartyId = currentPartyFull.handoff_to_party_id;
-        console.log("[v0] Handoff attivo: aggiornamento automatico feste");
 
-        // 1. AUTO-COMPLETA LE PRIME DUE FASI PER LA SECONDA FESTA
         const { data: existingDestChecks } = await supabase
           .from("checks")
           .select("type")
@@ -853,18 +780,16 @@ export async function submitCheck(
         const existingTypes = existingDestChecks?.map(c => c.type) || [];
         const checksToInsert = [];
 
-        // Salta Fase 1: Il magazziniere non deve prepararla
         if (!existingTypes.includes("deposito_scaffale")) {
           checksToInsert.push({
             party_id:           destPartyId,
-            user_id:            userId, // L'animatore che sta passando il materiale
+            user_id:            userId,
             type:               "deposito_scaffale",
             notes:              `Check automatico — materiale ricevuto in handoff dalla festa sorgente.`,
             materiale_smarrito: false,
           });
         }
 
-        // Salta Fase 2: Il materiale è GIA' nel furgone della nuova festa
         if (!existingTypes.includes("scaffale_furgone")) {
           checksToInsert.push({
             party_id:           destPartyId,
@@ -878,14 +803,12 @@ export async function submitCheck(
         if (checksToInsert.length > 0) {
           await supabase.from("checks").insert(checksToInsert);
           
-          // Imposta la SECONDA festa direttamente come "caricato_furgone"
           await supabase
             .from("parties")
             .update({ stato: "caricato_furgone" })
             .eq("id", destPartyId);
         }
 
-        // 2. CHIUDI DEFINITIVAMENTE LA PRIMA FESTA (Salta l'ultimo check magazziniere)
         const { data: existingSrc } = await supabase
           .from("checks")
           .select("id")
@@ -902,7 +825,6 @@ export async function submitCheck(
             materiale_smarrito: false,
           });
           
-          // Chiude la PRIMA festa per sempre
           await supabase
             .from("parties")
             .update({ stato: "scaricato_scaffale" })
@@ -910,7 +832,6 @@ export async function submitCheck(
         }
       }
     }
-    // ── Fine Logica Handoff ──────────────────────────────────────────────────
 
     revalidatePath(`/admin/check/${shelfId}`);
 
@@ -921,12 +842,6 @@ export async function submitCheck(
   }
 }
 
-/**
- * Salva IMMEDIATAMENTE una segnalazione di danneggiato/rubato
- * su un singolo elemento durante il check (prima del submit).
- * - Inserisce in inventory_losses (resolved=false)
- * - Mette materiale_mancante: true sull'item
- */
 export async function reportItemDamage(inventoryId, partyId, userId, tipo, valoreStimato, note) {
   try {
     const supabase = await createClient();
@@ -952,7 +867,6 @@ export async function reportItemDamage(inventoryId, partyId, userId, tipo, valor
 
     if (itemError) throw itemError;
 
-    console.log("[v0] Item damage reported and marked:", inventoryId, tipo);
     return { success: true };
   } catch (error) {
     console.error("[v0] Error reporting item damage:", error);
@@ -960,10 +874,6 @@ export async function reportItemDamage(inventoryId, partyId, userId, tipo, valor
   }
 }
 
-/**
- * Salva le segnalazioni di materiale perso/danneggiato/rubato
- * nella tabella inventory_losses (fase post-check).
- */
 export async function reportLosses(checkId, partyId, userId, losses) {
   try {
     const supabase = await createClient();
@@ -986,7 +896,6 @@ export async function reportLosses(checkId, partyId, userId, losses) {
 
     if (error) throw error;
 
-    console.log("[v0] Losses reported successfully:", rows.length);
     return { success: true };
   } catch (error) {
     console.error("[v0] Error reporting losses:", error);
