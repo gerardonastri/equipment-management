@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trash2, Star, ChevronDown, ChevronRight, Package, AlertCircle, Plus, Check, Loader2 } from "lucide-react";
+import { Trash2, Star, ChevronDown, ChevronRight, Package, AlertCircle, Plus, Check, Loader2, Search, X } from "lucide-react";
 import {
   getAvailableItemsForSpecialParty,
   assignSingleItem,
@@ -29,6 +29,10 @@ export function MaterialModal({
   const [assigningId, setAssigningId] = useState(null);
   const [removingId, setRemovingId] = useState(null);
 
+  // Ricerca materiale (macro-categorie disponibili + aggiunte speciali)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [specialSearchQuery, setSpecialSearchQuery] = useState("");
+
   // ID elementi singoli già assegnati alla festa (cat/sotto nella party_inventory)
   const assignedSingleIds = new Set(
     materials
@@ -42,8 +46,48 @@ export function MaterialModal({
       setSpecialItems([]);
       setExpandedMacro({});
       setExpandedCat({});
+      setSearchQuery("");
+      setSpecialSearchQuery("");
     }
   }, [isOpen]);
+
+  // Normalizza una stringa per il confronto (case/accenti-insensitive)
+  const normalize = (s) =>
+    (s || "")
+      .toString()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+  // Macro-categorie disponibili filtrate per la ricerca
+  const filteredMacroCategories = macroCategories.filter((macro) =>
+    normalize(macro.name).includes(normalize(searchQuery))
+  );
+
+  // Aggiunte speciali filtrate: mostra la macro se il nome macro, di una categoria
+  // o di un sotto-elemento combacia con la ricerca (mantenendo la gerarchia intera)
+  const filteredSpecialItems = specialItems
+    .map((macro) => {
+      const q = normalize(specialSearchQuery);
+      if (!q) return macro;
+
+      const macroMatches = normalize(macro.name).includes(q);
+      if (macroMatches) return macro;
+
+      const filteredCategories = macro.categories
+        .map((cat) => {
+          const catMatches = normalize(cat.name).includes(q);
+          const matchingItems = cat.items.filter((sub) => normalize(sub.name).includes(q));
+          if (catMatches) return cat;
+          if (matchingItems.length > 0) return { ...cat, items: matchingItems };
+          return null;
+        })
+        .filter(Boolean);
+
+      if (filteredCategories.length === 0) return null;
+      return { ...macro, categories: filteredCategories };
+    })
+    .filter(Boolean);
 
   const loadSpecialItems = async () => {
     if (!party?.id) return;
@@ -150,8 +194,34 @@ export function MaterialModal({
                 <h4 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wide">
                   Macro-Categorie Disponibili
                 </h4>
+                {/* Barra di ricerca materiale */}
+                <div className="relative mb-3">
+                  <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cerca materiale..."
+                    className="w-full pl-9 pr-8 py-2 border border-border rounded-lg bg-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                  {macroCategories.map((macro) => {
+                  {filteredMacroCategories.length === 0 && (
+                    <div className="text-center py-6 text-muted-foreground">
+                      <AlertCircle className="w-6 h-6 mx-auto mb-1.5 opacity-40" />
+                      <p className="text-xs">Nessun materiale trovato per "{searchQuery}"</p>
+                    </div>
+                  )}
+                  {filteredMacroCategories.map((macro) => {
                     const isAssigned = materials.some((m) => m.id === macro.id && m._isMacro);
                     const isUsedElsewhere = usedMacroIds?.has(macro.id) && !isAssigned;
 
@@ -296,6 +366,28 @@ export function MaterialModal({
                       </span>
                     </div>
 
+                    {!loadingSpecial && specialItems.length > 0 && (
+                      <div className="relative mb-3">
+                        <Search className="w-4 h-4 text-amber-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={specialSearchQuery}
+                          onChange={(e) => setSpecialSearchQuery(e.target.value)}
+                          placeholder="Cerca tra le aggiunte speciali..."
+                          className="w-full pl-9 pr-8 py-2 border border-amber-200 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                        />
+                        {specialSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setSpecialSearchQuery("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-500 hover:text-amber-700"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     {loadingSpecial ? (
                       <div className="flex items-center justify-center py-8 gap-2 text-amber-700">
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -306,9 +398,14 @@ export function MaterialModal({
                         <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
                         <p className="text-sm">Nessun elemento disponibile — tutte le macro sono già assegnate.</p>
                       </div>
+                    ) : filteredSpecialItems.length === 0 ? (
+                      <div className="text-center py-8 text-amber-700/70">
+                        <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Nessun elemento trovato per "{specialSearchQuery}".</p>
+                      </div>
                     ) : (
                       <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                        {specialItems.map((macro) => (
+                        {filteredSpecialItems.map((macro) => (
                           <div key={macro.id} className="bg-card rounded-xl border border-amber-200 overflow-hidden">
                             {/* Header macro */}
                             <button

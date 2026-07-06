@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   History,
@@ -14,7 +14,11 @@ import {
   ChevronUp,
   Box,
   AlertTriangle,
-  Check
+  Check,
+  GitCommit,
+  ArrowRight,
+  List,
+  Layers
 } from "lucide-react";
 import Navbar from "@/components/navbar";
 import { createBrowserClient } from "@supabase/ssr";
@@ -25,9 +29,10 @@ export default function ChecksHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
+  const [viewMode, setViewMode] = useState("checks");
   
-  // Stato per gestire l'apertura a fisarmonica dei check
   const [expandedChecks, setExpandedChecks] = useState({});
+  const [expandedMaterials, setExpandedMaterials] = useState({});
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -39,12 +44,13 @@ export default function ChecksHistoryPage() {
   }, []);
 
   useEffect(() => {
-    filterChecks();
-  }, [checks, searchTerm, filterType]);
+    if (viewMode === "checks") {
+      filterChecks();
+    }
+  }, [checks, searchTerm, filterType, viewMode]);
 
   const loadChecksHistory = async () => {
     try {
-      // Aggiunta la relazione check_items -> inventory_items per recuperare il materiale
       const { data: checksData, error } = await supabase
         .from("checks")
         .select(`
@@ -53,6 +59,7 @@ export default function ChecksHistoryPage() {
           parties!inner(nome, data, luogo),
           check_items (
             id,
+            inventory_id,
             quantita_prevista,
             quantita_trovata,
             stato,
@@ -78,11 +85,15 @@ export default function ChecksHistoryPage() {
     let filtered = checks;
 
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(
         (check) =>
-          check.parties.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          check.users.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          check.parties.luogo.toLowerCase().includes(searchTerm.toLowerCase())
+          check.parties?.nome?.toLowerCase().includes(term) ||
+          check.users?.nome?.toLowerCase().includes(term) ||
+          check.parties?.luogo?.toLowerCase().includes(term) ||
+          check.check_items?.some((item) =>
+            item.inventory_items?.name?.toLowerCase().includes(term)
+          )
       );
     }
 
@@ -93,10 +104,55 @@ export default function ChecksHistoryPage() {
     setFilteredChecks(filtered);
   };
 
-  const toggleCheck = (checkId) => {
-    setExpandedChecks((prev) => ({
+  const materialTimelines = useMemo(() => {
+    if (viewMode !== "materials" || !searchTerm.trim()) return [];
+    
+    const term = searchTerm.toLowerCase();
+    const map = new Map();
+
+    checks.forEach((check) => {
+      check.check_items?.forEach((item) => {
+        const invItem = item.inventory_items;
+        if (invItem?.name?.toLowerCase().includes(term)) {
+          if (!map.has(item.inventory_id)) {
+            map.set(item.inventory_id, {
+              id: item.inventory_id,
+              name: invItem.name,
+              image_url: invItem.image_url,
+              history: []
+            });
+          }
+          
+          if (filterType === "all" || check.type === filterType) {
+            map.get(item.inventory_id).history.push({
+              check_id: check.id,
+              date: check.created_at,
+              party_nome: check.parties?.nome,
+              user_nome: check.users?.nome,
+              type: check.type,
+              stato: item.stato,
+              quantita_trovata: item.quantita_trovata,
+              quantita_prevista: item.quantita_prevista,
+              note: item.note
+            });
+          }
+        }
+      });
+    });
+
+    const result = Array.from(map.values()).filter(mat => mat.history.length > 0);
+    
+    result.forEach(mat => {
+      mat.history.sort((a, b) => new Date(b.date) - new Date(a.date));
+    });
+
+    return result.sort((a, b) => a.name.localeCompare(b.name));
+  }, [checks, searchTerm, filterType, viewMode]);
+
+  const toggleCheck = (id, setter) => {
+    setter((prev) => ({
       ...prev,
-      [checkId]: !prev[checkId],
+      [id]: !prev[id],
     }));
   };
 
@@ -165,26 +221,40 @@ export default function ChecksHistoryPage() {
 
       <main className="containerMod py-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-          {/* Header */}
-          <div className="flex items-center justify-between">
+          
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Storico Check</h1>
-              <p className="text-muted-foreground">Visualizza tutti i check completati e i materiali verificati</p>
+              <p className="text-muted-foreground">Visualizza i check completati o traccia la cronologia dei materiali</p>
             </div>
-            <div className="flex items-center space-x-2 bg-card px-4 py-2 rounded-xl border border-border shadow-sm">
-              <History className="w-5 h-5 text-primary" />
-              <span className="text-sm font-semibold text-foreground">{filteredChecks.length} <span className="font-normal text-muted-foreground">check trovati</span></span>
+            
+            <div className="flex p-1 bg-card border border-border rounded-lg shadow-sm w-full lg:w-auto">
+              <button
+                onClick={() => setViewMode("checks")}
+                className={`flex-1 flex items-center justify-center gap-2 px-6 py-2 rounded-md text-sm font-semibold transition-all ${
+                  viewMode === "checks" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:bg-surface"
+                }`}
+              >
+                <List className="w-4 h-4" /> Elenco Check
+              </button>
+              <button
+                onClick={() => setViewMode("materials")}
+                className={`flex-1 flex items-center justify-center gap-2 px-6 py-2 rounded-md text-sm font-semibold transition-all ${
+                  viewMode === "materials" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:bg-surface"
+                }`}
+              >
+                <Layers className="w-4 h-4" /> Cronologia Materiali
+              </button>
             </div>
           </div>
 
-          {/* Filters */}
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Cerca per festa, utente o luogo..."
+                  placeholder={viewMode === "checks" ? "Cerca per festa, utente, luogo o materiale..." : "Digita il nome di un materiale per tracciarlo..."}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring bg-surface"
@@ -207,132 +277,224 @@ export default function ChecksHistoryPage() {
             </div>
           </div>
 
-          {/* Checks List */}
-          <div className="space-y-4">
-            {filteredChecks.map((check, index) => {
-              const isExpanded = !!expandedChecks[check.id];
-              const hasItems = check.check_items && check.check_items.length > 0;
+          {viewMode === "checks" ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                <History className="w-4 h-4" /> Trovati {filteredChecks.length} check
+              </div>
+              
+              {filteredChecks.map((check, index) => {
+                const isExpanded = !!expandedChecks[check.id];
+                const hasItems = check.check_items && check.check_items.length > 0;
 
-              return (
-                <motion.div
-                  key={check.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className={`bg-card rounded-xl border transition-all duration-200 ${isExpanded ? "border-primary/40 shadow-md" : "border-border hover:border-border/80"}`}
-                >
-                  {/* Card Header (Cliccabile) */}
-                  <div 
-                    onClick={() => toggleCheck(check.id)}
-                    className="p-5 cursor-pointer flex items-start justify-between group"
+                return (
+                  <motion.div
+                    key={check.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.02 }}
+                    className={`bg-card rounded-xl border transition-all duration-200 ${isExpanded ? "border-primary/40 shadow-md" : "border-border hover:border-border/80"}`}
                   >
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-center space-x-3">
-                        <CheckCircle className="w-5 h-5 text-green-500" />
-                        <h3 className="text-lg font-bold text-foreground">{check.parties.nome}</h3>
-                        <span className={`px-2 py-0.5 rounded-md text-[11px] uppercase tracking-wider font-bold ${getCheckTypeColor(check.type)}`}>
-                          {getCheckTypeLabel(check.type)}
-                        </span>
-                        {check.materiale_smarrito && (
-                          <span className="px-2 py-0.5 rounded-md text-[11px] uppercase tracking-wider font-bold bg-red-100 text-red-600 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3"/> Anomalie
+                    <div 
+                      onClick={() => toggleCheck(check.id, setExpandedChecks)}
+                      className="p-5 cursor-pointer flex items-start justify-between group"
+                    >
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center space-x-3">
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                          <h3 className="text-lg font-bold text-foreground">{check.parties.nome}</h3>
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] uppercase tracking-wider font-bold ${getCheckTypeColor(check.type)}`}>
+                            {getCheckTypeLabel(check.type)}
                           </span>
-                        )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                          <div className="flex items-center space-x-2 text-muted-foreground">
+                            <User className="w-4 h-4" />
+                            <span>Operatore:</span>
+                            <span className="font-semibold text-foreground">{check.users.nome}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-muted-foreground">
+                            <Calendar className="w-4 h-4" />
+                            <span>Data:</span>
+                            <span className="font-semibold text-foreground">{formatDate(check.created_at)}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-muted-foreground">
+                            <Package className="w-4 h-4" />
+                            <span>Luogo:</span>
+                            <span className="font-semibold text-foreground line-clamp-1">{check.parties.luogo}</span>
+                          </div>
+                        </div>
                       </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                        <div className="flex items-center space-x-2 text-muted-foreground">
-                          <User className="w-4 h-4" />
-                          <span>Operatore:</span>
-                          <span className="font-semibold text-foreground">{check.users.nome}</span>
-                        </div>
-                        <div className="flex items-center space-x-2 text-muted-foreground">
-                          <Calendar className="w-4 h-4" />
-                          <span>Data:</span>
-                          <span className="font-semibold text-foreground">{formatDate(check.created_at)}</span>
-                        </div>
-                        <div className="flex items-center space-x-2 text-muted-foreground">
-                          <Package className="w-4 h-4" />
-                          <span>Luogo:</span>
-                          <span className="font-semibold text-foreground line-clamp-1">{check.parties.luogo}</span>
-                        </div>
+                      
+                      <div className="ml-4 flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors shrink-0">
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </div>
-
-                      {check.notes && (
-                        <p className="text-sm text-muted-foreground mt-2 bg-surface p-2.5 rounded-lg border border-border/50">
-                          <strong className="text-foreground">Note:</strong> {check.notes}
-                        </p>
-                      )}
                     </div>
-                    
-                    {/* Toggle Button */}
-                    <div className="ml-4 flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors shrink-0">
-                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    </div>
-                  </div>
 
-                  {/* Expanded Material Section */}
-                  <AnimatePresence>
-                    {isExpanded && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2, ease: "easeInOut" }}
-                        className="overflow-hidden border-t border-border bg-surface/30 rounded-b-xl"
-                      >
-                        <div className="p-5">
-                          <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-                            <Box className="w-4 h-4 text-primary" /> 
-                            Materiale Verificato ({check.check_items?.length || 0})
-                          </h4>
-                          
-                          {hasItems ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                              {check.check_items.map((item) => (
-                                <div key={item.id} className="flex items-center justify-between p-3 bg-card border border-border rounded-lg shadow-sm">
-                                  <div className="flex items-center gap-3 overflow-hidden">
-                                    <div className="w-8 h-8 rounded-md bg-surface border border-border flex items-center justify-center shrink-0 overflow-hidden">
-                                      {item.inventory_items?.image_url ? (
-                                        <img src={item.inventory_items.image_url} alt="" className="w-full h-full object-cover" />
-                                      ) : (
-                                        <Package className="w-4 h-4 text-muted-foreground opacity-50" />
-                                      )}
-                                    </div>
-                                    <div className="truncate text-sm font-medium text-foreground">
-                                      {item.inventory_items?.name || "Articolo rimosso"}
-                                      <div className="text-[10px] text-muted-foreground font-normal">
-                                        Q.tà: {item.quantita_trovata} / {item.quantita_prevista}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="overflow-hidden border-t border-border bg-surface/30 rounded-b-xl"
+                        >
+                          <div className="p-5">
+                            {hasItems ? (
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {check.check_items.map((item) => (
+                                  <div key={item.id} className="flex items-center justify-between p-3 bg-card border border-border rounded-lg shadow-sm">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                      <div className="w-8 h-8 rounded-md bg-surface border border-border flex items-center justify-center shrink-0 overflow-hidden">
+                                        {item.inventory_items?.image_url ? (
+                                          <img src={item.inventory_items.image_url} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                          <Package className="w-4 h-4 text-muted-foreground opacity-50" />
+                                        )}
+                                      </div>
+                                      <div className="truncate text-sm font-medium text-foreground">
+                                        {item.inventory_items?.name || "Articolo rimosso"}
+                                        <div className="text-[10px] text-muted-foreground font-normal">
+                                          Q.tà: {item.quantita_trovata} / {item.quantita_prevista}
+                                        </div>
                                       </div>
                                     </div>
+                                    <div className="shrink-0 ml-3">
+                                      {getItemStatusUI(item.stato)}
+                                    </div>
                                   </div>
-                                  <div className="shrink-0 ml-3">
-                                    {getItemStatusUI(item.stato)}
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground text-center py-4">Nessun dettaglio materiale salvato.</p>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                );
+              })}
+              
+              {filteredChecks.length === 0 && (
+                <div className="text-center py-12 bg-card rounded-xl border border-border">
+                  <History className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                  <h3 className="text-lg font-semibold text-foreground mb-1">Nessun check trovato</h3>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {!searchTerm.trim() ? (
+                <div className="text-center py-12 bg-card rounded-xl border border-dashed border-border">
+                  <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-30" />
+                  <h3 className="text-lg font-semibold text-foreground mb-1">Cerca un materiale</h3>
+                  <p className="text-sm text-muted-foreground">Digita il nome di un oggetto per visualizzare i suoi spostamenti storici.</p>
+                </div>
+              ) : materialTimelines.length === 0 ? (
+                <div className="text-center py-12 bg-card rounded-xl border border-border">
+                  <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                  <h3 className="text-lg font-semibold text-foreground mb-1">Nessun materiale trovato</h3>
+                  <p className="text-sm text-muted-foreground">Non ci sono movimenti registrati per "{searchTerm}".</p>
+                </div>
+              ) : (
+                materialTimelines.map((material, index) => {
+                  const isExpanded = expandedMaterials[material.id] !== false; 
+
+                  return (
+                    <motion.div
+                      key={material.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="bg-card rounded-xl border border-border overflow-hidden"
+                    >
+                      <div 
+                        onClick={() => toggleCheck(material.id, setExpandedMaterials)}
+                        className="p-4 bg-surface border-b border-border flex items-center justify-between cursor-pointer hover:bg-surface/80 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-card border border-border flex items-center justify-center overflow-hidden shrink-0">
+                            {material.image_url ? (
+                              <img src={material.image_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <Package className="w-5 h-5 text-muted-foreground opacity-50" />
+                            )}
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-foreground">{material.name}</h3>
+                            <p className="text-xs text-muted-foreground">{material.history.length} movimenti registrati</p>
+                          </div>
+                        </div>
+                        <div className="text-muted-foreground bg-card p-1.5 rounded-md border border-border shadow-sm">
+                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </div>
+                      </div>
+
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="p-6"
+                          >
+                            <div className="relative border-l-2 border-border/60 ml-3 space-y-6">
+                              {material.history.map((event, evtIdx) => (
+                                <div key={`${event.check_id}-${evtIdx}`} className="relative pl-6">
+                                  <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-card border-2 border-primary z-10 flex items-center justify-center">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                  </div>
+                                  
+                                  <div className="bg-surface rounded-lg p-4 border border-border">
+                                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-3">
+                                      <div>
+                                        <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] uppercase tracking-wider font-bold mb-1 ${getCheckTypeColor(event.type)}`}>
+                                          {getCheckTypeLabel(event.type)}
+                                        </span>
+                                        <h4 className="font-bold text-foreground">{event.party_nome}</h4>
+                                      </div>
+                                      <div className="text-right">
+                                        <div className="text-xs font-semibold text-foreground flex items-center gap-1 sm:justify-end">
+                                          <Calendar className="w-3 h-3 text-muted-foreground"/> {formatDate(event.date)}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">
+                                          Operatore: {event.user_nome}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-4 pt-3 border-t border-border/50">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-muted-foreground">Esito:</span>
+                                        {getItemStatusUI(event.stato)}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        Q.tà: <span className="font-semibold text-foreground">{event.quantita_trovata}</span> / {event.quantita_prevista}
+                                      </div>
+                                    </div>
+                                    
+                                    {event.note && (
+                                      <div className="mt-2 text-xs bg-card p-2 rounded border border-border/30 text-muted-foreground italic">
+                                        "{event.note}"
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               ))}
                             </div>
-                          ) : (
-                            <div className="text-center py-6 bg-surface rounded-xl border border-dashed border-border">
-                              <p className="text-sm text-muted-foreground">Nessun dettaglio materiale salvato per questo check.</p>
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              );
-            })}
-
-            {filteredChecks.length === 0 && (
-              <div className="text-center py-12 bg-card rounded-xl border border-border">
-                <History className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                <h3 className="text-lg font-semibold text-foreground mb-1">Nessun check trovato</h3>
-                <p className="text-sm text-muted-foreground">Modifica i filtri o cerca un termine diverso.</p>
-              </div>
-            )}
-          </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </motion.div>
       </main>
     </div>

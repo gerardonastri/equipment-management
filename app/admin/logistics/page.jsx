@@ -12,7 +12,6 @@ import {
 import Navbar from "@/components/navbar";
 import { getLogisticsByDate, getLogisticsUsers, saveLogistics, getMovidaAnimatoriForDate } from "./actions";
 
-// ─── Costanti & Helper ────────────────────────────────────────────────────────
 const DEFAULT_VEICOLI = [
   "cubo", "blu", "granata", "grigio",
   "scudo", "noleggio 1", "noleggio 2", "auto propria",
@@ -37,7 +36,6 @@ function todayISO() { return new Date().toISOString().slice(0, 10); }
 
 const normalizeId = (id) => String(id || "").toLowerCase().replace(/\s+/g, "");
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
 function useToast() {
   const [toasts, setToasts] = useState([]);
   const add = useCallback((message, type = "info", duration = 3500) => {
@@ -73,7 +71,6 @@ function ToastContainer({ toasts, removeToast }) {
   );
 }
 
-// ─── Componenti UI (Selector) ────────────────────────────────────────────────
 function VeicoloSelector({ selected, onChange, placeholder, allVeicoli }) {
   const available = allVeicoli.filter((v) => !selected.includes(v));
   return (
@@ -125,11 +122,9 @@ function UserSelector({ allUsers, selectedIds, onChange, placeholder = "Aggiungi
   );
 }
 
-// ─── Riga Logistica ───────────────────────────────────────────────────────────
 function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaAnimatori, allVeicoli }) {
   const { party, logistics, macros = [] } = entry;
 
-  // 1. AUTO-MATCHING SILENZIOSO: Incrocia animatori Movida col nostro DB utenti
   const matchedStaffIds = useMemo(() => {
     if (!movidaAnimatori || !allUsers) return [];
     const movidaNames = movidaAnimatori.map(a => normalizeId(a.denominazione));
@@ -158,11 +153,20 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [dirty, setDirty]   = useState(false);
-  const [soloAndata, setSoloAndata] = useState(
-    logistics?.solo_andata !== undefined ? logistics.solo_andata : false
-  );
 
-  useEffect(() => { setForm(buildForm(logistics)); setDirty(false); }, [logistics, buildForm]);
+  const [tripType, setTripType] = useState(() => {
+    if (logistics?.solo_andata) return 'andata';
+    if (logistics?.andata_ritorno === false && !logistics?.solo_andata) return 'ritorno';
+    return 'both';
+  });
+
+  useEffect(() => { 
+    setForm(buildForm(logistics)); 
+    setDirty(false); 
+    if (logistics?.solo_andata) setTripType('andata');
+    else if (logistics?.andata_ritorno === false && !logistics?.solo_andata) setTripType('ritorno');
+    else setTripType('both');
+  }, [logistics, buildForm]);
 
   const update = (key, value) => { setForm((p) => ({ ...p, [key]: value })); setDirty(true); setSaved(false); };
 
@@ -171,8 +175,10 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
     try {
       const dataToSave = {
         ...form,
-        solo_andata: soloAndata,
-        ...(soloAndata ? { veicoli_ritorno: [], drivers_ritorno_ids: [] } : {}),
+        solo_andata: tripType === 'andata',
+        andata_ritorno: tripType === 'both',
+        ...(tripType === 'andata' ? { veicoli_ritorno: [], drivers_ritorno_ids: [] } : {}),
+        ...(tripType === 'ritorno' ? { veicoli_andata: [], drivers_andata_ids: [] } : {}),
       };
       const result = await saveLogistics(party.id, dataToSave);
       if (result.error) { toast(result.error, "error"); return; }
@@ -184,7 +190,11 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
     finally { setSaving(false); }
   };
 
-  const isConfigured = form.drivers_andata_ids.length > 0 || form.veicoli_andata.length > 0;
+  const isConfigured = tripType === 'andata' 
+    ? (form.drivers_andata_ids.length > 0 || form.veicoli_andata.length > 0)
+    : tripType === 'ritorno'
+    ? (form.drivers_ritorno_ids.length > 0 || form.veicoli_ritorno.length > 0)
+    : (form.drivers_andata_ids.length > 0 || form.veicoli_andata.length > 0 || form.drivers_ritorno_ids.length > 0 || form.veicoli_ritorno.length > 0);
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
@@ -194,7 +204,6 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
         : "border-border"
       }`}>
 
-      {/* Header festa */}
       <div className="px-5 py-3.5 border-b border-border bg-surface/40">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -225,7 +234,7 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {dirty && (
-              <button onClick={() => { setForm(buildForm(logistics)); setDirty(false); }}
+              <button onClick={() => { setForm(buildForm(logistics)); setDirty(false); setTripType(logistics?.solo_andata ? 'andata' : logistics?.andata_ritorno === false ? 'ritorno' : 'both'); }}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" title="Annulla modifiche">
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
@@ -243,26 +252,28 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
         </div>
       </div>
 
-      {/* Toggle andata/ritorno */}
-      <div className="px-5 pt-3 flex items-center gap-2">
-        <button type="button" onClick={() => { setSoloAndata(true); setDirty(true); setSaved(false); }}
+      <div className="px-5 pt-3 flex items-center gap-2 flex-wrap">
+        <button type="button" onClick={() => { setTripType('andata'); setDirty(true); setSaved(false); }}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all ${
-            soloAndata ? "bg-green-50 border-green-300 text-green-700" : "bg-surface border-border text-muted-foreground hover:text-foreground"
+            tripType === 'andata' ? "bg-green-50 border-green-300 text-green-700" : "bg-surface border-border text-muted-foreground hover:text-foreground"
           }`}>
-          <ArrowRight className="w-3 h-3" />Solo andata
+          <ArrowRight className="w-3 h-3" />Solo Andata
         </button>
-        <button type="button" onClick={() => { setSoloAndata(false); setDirty(true); setSaved(false); }}
+        <button type="button" onClick={() => { setTripType('ritorno'); setDirty(true); setSaved(false); }}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all ${
-            !soloAndata ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-surface border-border text-muted-foreground hover:text-foreground"
+            tripType === 'ritorno' ? "bg-purple-50 border-purple-300 text-purple-700" : "bg-surface border-border text-muted-foreground hover:text-foreground"
           }`}>
-          <ArrowLeft className="w-3 h-3" />Andata e ritorno
+          <ArrowLeft className="w-3 h-3" />Solo Ritorno
+        </button>
+        <button type="button" onClick={() => { setTripType('both'); setDirty(true); setSaved(false); }}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all ${
+            tripType === 'both' ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-surface border-border text-muted-foreground hover:text-foreground"
+          }`}>
+          <ArrowRight className="w-3 h-3 -mr-1" /><ArrowLeft className="w-3 h-3" />Andata e Ritorno
         </button>
       </div>
 
-      {/* Campi logistica */}
       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* Staff & Responsabili */}
         <div className="space-y-4">
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1">
@@ -270,7 +281,6 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
             </label>
             <UserSelector allUsers={allUsers} selectedIds={form.staff_ids} onChange={(ids) => update("staff_ids", ids)} />
           </div>
-          
           <div className="pt-3 border-t border-border/50">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1 text-purple-700">
               <ClipboardCheck className="w-3 h-3" />Responsabili Check
@@ -285,23 +295,27 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
           </div>
         </div>
 
-        {/* Andata */}
-        <div className="rounded-xl border border-green-200 bg-green-50/40 p-3 space-y-2.5">
-          <p className="text-xs font-bold text-green-700 flex items-center gap-1.5 mb-0.5">
-            <ArrowRight className="w-3.5 h-3.5" />Andata
-          </p>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Driver</label>
-            <UserSelector allUsers={allUsers} selectedIds={form.drivers_andata_ids} onChange={(ids) => update("drivers_andata_ids", ids)} placeholder="Aggiungi driver..." colorClass="bg-green-100 text-green-800 border-green-300" />
+        {tripType !== 'ritorno' ? (
+          <div className="rounded-xl border border-green-200 bg-green-50/40 p-3 space-y-2.5">
+            <p className="text-xs font-bold text-green-700 flex items-center gap-1.5 mb-0.5">
+              <ArrowRight className="w-3.5 h-3.5" />Andata
+            </p>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Driver</label>
+              <UserSelector allUsers={allUsers} selectedIds={form.drivers_andata_ids} onChange={(ids) => update("drivers_andata_ids", ids)} placeholder="Aggiungi driver..." colorClass="bg-green-100 text-green-800 border-green-300" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Mezzi</label>
+              <VeicoloSelector allVeicoli={allVeicoli} selected={form.veicoli_andata} onChange={(v) => update("veicoli_andata", v)} placeholder="Aggiungi mezzo..." />
+            </div>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Mezzi</label>
-            <VeicoloSelector allVeicoli={allVeicoli} selected={form.veicoli_andata} onChange={(v) => update("veicoli_andata", v)} placeholder="Aggiungi mezzo..." />
+        ) : (
+          <div className="rounded-xl border border-dashed border-green-200 bg-green-50/20 p-3 flex items-center justify-center">
+            <span className="text-xs text-green-600 font-medium opacity-60 text-center">Andata non prevista<br/>(Solo Ritorno)</span>
           </div>
-        </div>
+        )}
 
-        {/* Ritorno */}
-        {!soloAndata ? (
+        {tripType !== 'andata' ? (
           <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 space-y-2.5">
             <p className="text-xs font-bold text-blue-700 flex items-center gap-1.5 mb-0.5">
               <ArrowLeft className="w-3.5 h-3.5" />Ritorno
@@ -316,12 +330,11 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
             </div>
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-green-200 bg-green-50/20 p-3 flex items-center justify-center">
-            <span className="text-xs text-green-600 font-medium opacity-60">Solo andata</span>
+          <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50/20 p-3 flex items-center justify-center">
+            <span className="text-xs text-blue-600 font-medium opacity-60 text-center">Ritorno non previsto<br/>(Solo Andata)</span>
           </div>
         )}
 
-        {/* Start + Note */}
         <div className="space-y-3">
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1">
@@ -339,7 +352,6 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
         </div>
       </div>
 
-      {/* Materiale assegnato */}
       {macros.length > 0 && (
         <MacroSection macros={macros} />
       )}
@@ -347,7 +359,6 @@ function LogisticRow({ entry, allUsers, index, onSave, onRefresh, toast, movidaA
   );
 }
 
-// ─── Sezione Materiale (collassabile) ─────────────────────────────────────────
 function MacroSection({ macros }) {
   const [open, setOpen] = useState(false);
   return (
@@ -395,8 +406,6 @@ function MacroSection({ macros }) {
   );
 }
 
-// ─── Motore di Stampa ─────────────────────────────────────────────────────────
-
 const VEICOLO_ACCENT = {
   "cubo":         "#64748b",
   "blu":          "#2563eb",
@@ -436,12 +445,16 @@ function buildPartyCard(entry, index, getName) {
   const { party, logistics: l, macros = [] } = entry;
   const staffNames = (l?.staff_ids || []).map(getName).filter(n => n !== "—");
   const respNames  = (l?.responsabili_ids || []).map(getName).filter(n => n !== "—");
-  const driversA   = (l?.drivers_andata_ids || []).map(getName).filter(n => n !== "—");
-  const driversR   = l?.solo_andata ? [] : (l?.drivers_ritorno_ids || []).map(getName).filter(n => n !== "—");
-  const mezziA     = l?.veicoli_andata || [];
-  const mezziR     = l?.solo_andata ? [] : (l?.veicoli_ritorno || []);
-  const configured = driversA.length > 0 || mezziA.length > 0;
+  
   const soloA      = !!l?.solo_andata;
+  const soloR      = l?.andata_ritorno === false && !l?.solo_andata;
+
+  const driversA   = soloR ? [] : (l?.drivers_andata_ids || []).map(getName).filter(n => n !== "—");
+  const mezziA     = soloR ? [] : (l?.veicoli_andata || []);
+  const driversR   = soloA ? [] : (l?.drivers_ritorno_ids || []).map(getName).filter(n => n !== "—");
+  const mezziR     = soloA ? [] : (l?.veicoli_ritorno || []);
+  const configured = driversA.length > 0 || mezziA.length > 0 || driversR.length > 0 || mezziR.length > 0;
+
   const barColor   = configured ? "#111" : "#e5e7eb";
 
   const macroRow = macros.length > 0
@@ -469,6 +482,7 @@ function buildPartyCard(entry, index, getName) {
         ${party.ora_inizio   ? `<span><strong style="color:#111;font-weight:700">${party.ora_inizio}</strong> festa</span>` : ""}
         ${l?.start_logistica ? `<span><strong style="color:#111;font-weight:700">${l.start_logistica}</strong> start</span>` : ""}
         ${soloA              ? `<span style="color:#9ca3af;font-size:8.5px;font-weight:600">Solo andata</span>` : ""}
+        ${soloR              ? `<span style="color:#9ca3af;font-size:8.5px;font-weight:600">Solo ritorno</span>` : ""}
         ${!configured        ? `<span style="color:#d1d5db;font-size:8.5px;font-weight:600">Da configurare</span>` : ""}
       </div>
     </div>
@@ -479,11 +493,11 @@ function buildPartyCard(entry, index, getName) {
         ${respNames.length ? `<div style="margin-top:7px">${colLabel("Responsabili", "#7c3aed")}<div style="line-height:1.9">${respNames.map(n => nameTag(n, "#7c3aed")).join("")}</div></div>` : ""}
       </div>
       <div style="padding:0 12px;border-right:1px solid #f3f4f6">
-        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#111;margin-bottom:5px">→ Andata</div>
-        ${colLabel("Driver")}
-        <div style="line-height:1.9;margin-bottom:6px">${driversA.length ? driversA.map(n => nameTag(n, "#111")).join("") : EMPTY}</div>
-        ${colLabel("Mezzi")}
-        <div style="line-height:1.9">${mezziA.length ? mezziA.map(vChip).join("") : EMPTY}</div>
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${soloR ? "#d1d5db" : "#111"};margin-bottom:5px">→ Andata</div>
+        ${soloR
+          ? `<div style="font-size:9px;color:#d1d5db;margin-top:2px">Solo ritorno</div>`
+          : `${colLabel("Driver")}<div style="line-height:1.9;margin-bottom:6px">${driversA.length ? driversA.map(n => nameTag(n, "#111")).join("") : EMPTY}</div>${colLabel("Mezzi")}<div style="line-height:1.9">${mezziA.length ? mezziA.map(vChip).join("") : EMPTY}</div>`
+        }
       </div>
       <div style="padding:0 12px;border-right:1px solid #f3f4f6">
         <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${soloA ? "#d1d5db" : "#111"};margin-bottom:5px">← Ritorno</div>
@@ -494,7 +508,7 @@ function buildPartyCard(entry, index, getName) {
       </div>
       <div style="padding-left:12px">
         ${colLabel("Note")}
-        ${l?.note ? `<div style="font-size:9.5px;color:#374151;line-height:1.6">${l.note}</div>` : EMPTY}
+        ${l?.note ? `<div style="font-size:9.5px;color:#374151;line-height:1.6;white-space:pre-wrap;">${l.note}</div>` : EMPTY}
       </div>
     </div>
     ${macroRow}
@@ -533,8 +547,6 @@ function handlePrint({ entries, allUsers, allVeicoli, movidaMap, date, type }) {
   const dateStr = new Date(date + "T00:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const getName = (id) => allUsers.find((u) => String(u.id) === String(id))?.nome || "—";
 
-  // Ricostruisce il merge Movida+DB esattamente come fa buildForm nel LogisticRow,
-  // così lo staff auto-matched appare anche se non ancora salvato.
   const enrichedEntries = entries.map((entry) => {
     const { party, logistics: l, macros = [] } = entry;
     const extId = normalizeId(party.external_id);
@@ -557,6 +569,21 @@ function handlePrint({ entries, allUsers, allVeicoli, movidaMap, date, type }) {
 
   if (type === "daily") {
     contentHtml = enrichedEntries.map((e, i) => buildPartyCard(e, i, getName)).join("");
+  }
+  else if (type === "return") {
+    title = "Logistica - Ordine di Rientro";
+    
+    // Scarta le logistiche "Solo Andata" perché non hanno rientro
+    const returnEntries = enrichedEntries.filter(e => !e.logistics?.solo_andata);
+    
+    // Ordina i ritorni partendo dall'ora di inizio festa (chi inizia prima, rientra prima)
+    returnEntries.sort((a, b) => {
+      const tA = a.party.ora_inizio || "23:59";
+      const tB = b.party.ora_inizio || "23:59";
+      return tA.localeCompare(tB);
+    });
+    
+    contentHtml = returnEntries.map((e, i) => buildPartyCard(e, i, getName)).join("");
   }
   else if (type === "driver") {
     title = "Logistica per Driver";
@@ -603,7 +630,6 @@ function handlePrint({ entries, allUsers, allVeicoli, movidaMap, date, type }) {
   if (win) setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 600);
 }
 
-// ─── PAGINA PRINCIPALE ────────────────────────────────────────────────────────
 export default function LogisticsPage() {
   const { toasts, toast, removeToast } = useToast();
   const [selectedDate, setSelectedDate] = useState(todayISO());
@@ -615,7 +641,6 @@ export default function LogisticsPage() {
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm]       = useState("");
   
-  // Custom Vehicles State
   const [customVehicles, setCustomVehicles] = useState([]);
   const [newVehicleName, setNewVehicleName] = useState("");
   const [editingVehicleIdx, setEditingVehicleIdx] = useState(null);
@@ -668,7 +693,7 @@ export default function LogisticsPage() {
     const val = editVehicleValue.trim().toLowerCase();
     if (!val || (val !== customVehicles[editingVehicleIdx] && customVehicles.includes(val))) {
       setEditingVehicleIdx(null);
-      return; // Nome non valido o duplicato
+      return;
     }
     const updated = [...customVehicles];
     updated[editingVehicleIdx] = val;
@@ -701,10 +726,9 @@ export default function LogisticsPage() {
 
   useEffect(() => { loadData(selectedDate); }, [selectedDate, loadData]);
 
-  const filled  = entries.filter((e) => (e.logistics?.drivers_andata_ids?.length > 0) || (e.logistics?.veicoli_andata?.length > 0)).length;
+  const filled  = entries.filter((e) => (e.logistics?.drivers_andata_ids?.length > 0) || (e.logistics?.veicoli_andata?.length > 0) || (e.logistics?.drivers_ritorno_ids?.length > 0) || (e.logistics?.veicoli_ritorno?.length > 0)).length;
   const missing = entries.length - filled;
 
-  // ── Ricerca ──────────────────────────────────────────────────────────────────
   const filteredEntries = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return entries;
@@ -727,7 +751,6 @@ export default function LogisticsPage() {
       })) return true;
       const mezzi = [...(l?.veicoli_andata || []), ...(l?.veicoli_ritorno || [])];
       if (mezzi.some((v) => v.toLowerCase().includes(q))) return true;
-      // Macro assegnate
       if ((e.macros || []).some((m) => m.name.toLowerCase().includes(q))) return true;
       return false;
     });
@@ -741,7 +764,6 @@ export default function LogisticsPage() {
       <main className="containerMod py-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
 
-          {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
             <div>
               <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Pianificazione</p>
@@ -755,7 +777,6 @@ export default function LogisticsPage() {
             </div>
             <div className="flex items-center gap-3">
               
-              {/* Dropdown Stampa */}
               {!loading && entries.length > 0 && (
                 <div className="relative" ref={printMenuRef}>
                   <button
@@ -769,6 +790,8 @@ export default function LogisticsPage() {
                         className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-xl shadow-xl overflow-hidden z-50">
                         <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, movidaMap, date: selectedDate, type: "daily" }); setPrintMenuOpen(false); }}
                           className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors border-b border-border">Intera Giornata</button>
+                        <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, movidaMap, date: selectedDate, type: "return" }); setPrintMenuOpen(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors border-b border-border">Ordine di Rientro</button>
                         <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, movidaMap, date: selectedDate, type: "driver" }); setPrintMenuOpen(false); }}
                           className="w-full text-left px-4 py-2.5 text-sm hover:bg-surface transition-colors border-b border-border">Raggruppa per Driver</button>
                         <button onClick={() => { handlePrint({ entries, allUsers, allVeicoli, movidaMap, date: selectedDate, type: "vehicle" }); setPrintMenuOpen(false); }}
@@ -791,7 +814,6 @@ export default function LogisticsPage() {
             </div>
           </div>
 
-          {/* Ricerca */}
           {!loading && entries.length > 0 && (
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -810,7 +832,6 @@ export default function LogisticsPage() {
             </div>
           )}
 
-          {/* Lista Feste */}
           {loading ? (
             <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -860,7 +881,6 @@ export default function LogisticsPage() {
             </div>
           )}
 
-          {/* GESTORE CRUD MEZZI CUSTOM */}
           <div className="mt-8 pt-6 border-t border-border bg-card p-5 rounded-2xl shadow-sm">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <div>

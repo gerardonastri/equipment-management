@@ -49,7 +49,6 @@ const LOSS_CONFIG = {
   rubato:      { label: "Rubato",      cls: "bg-purple-100 text-purple-700 border-purple-200" },
 };
 
-// Filtri stato materiale — radio (uno alla volta)
 const STATUS_FILTERS = [
   { id: "all",         label: "Tutti",        activeClass: "bg-primary text-white border-primary" },
   { id: "mancante",    label: "Mancante",     activeClass: "bg-orange-500 text-white border-orange-500" },
@@ -57,7 +56,6 @@ const STATUS_FILTERS = [
   { id: "rubato",      label: "Rubato",       activeClass: "bg-purple-500 text-white border-purple-500" },
 ];
 
-// ── Link NFC riutilizzabile ────────────────────────────────────────────────
 function NfcLinkRow({ itemId, compact = false }) {
   const [copied, setCopied] = useState(false);
   const url = `${BASE_URL}/${itemId}`;
@@ -98,15 +96,30 @@ function NfcLinkRow({ itemId, compact = false }) {
   );
 }
 
-// ── Drawer dettaglio ───────────────────────────────────────────────────────
-function ItemDetailDrawer({ item, onClose, onEdit }) {
+function ItemDetailDrawer({ item, allItems = [], onClose, onEdit }) {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [expandedCategories, setExpandedCategories] = useState({});
 
   useEffect(() => {
     setLoading(true);
     getItemDetails(item.id).then((d) => { setDetails(d); setLoading(false); });
   }, [item.id]);
+
+  const breadcrumbs = useMemo(() => {
+    const crumbs = [];
+    let current = item;
+    while (current?.parent_id) {
+      const parent = allItems.find((i) => i.id === current.parent_id);
+      if (parent) {
+        crumbs.unshift(parent);
+        current = parent;
+      } else {
+        break;
+      }
+    }
+    return crumbs;
+  }, [item, allItems]);
 
   const typeLabel = item.type === "macro" ? "Macro Categoria" : item.type === "categoria" ? "Categoria" : "Sotto-elemento";
   const childLabel = item.type === "macro" ? "Categorie" : item.type === "categoria" ? "Sotto-elementi" : null;
@@ -114,6 +127,13 @@ function ItemDetailDrawer({ item, onClose, onEdit }) {
   const statusBadge = item.materiale_mancante
     ? <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200">Mancante</span>
     : <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">Disponibile</span>;
+
+  const toggleCategory = (catId) => {
+    setExpandedCategories((prev) => ({
+      ...prev,
+      [catId]: !prev[catId],
+    }));
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -136,7 +156,21 @@ function ItemDetailDrawer({ item, onClose, onEdit }) {
               <h2 className="text-lg font-bold text-foreground leading-tight">{item.name}</h2>
               {statusBadge}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">{typeLabel}</p>
+            
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1 flex-wrap">
+              <span className="font-semibold text-foreground/80">{typeLabel}</span>
+              {breadcrumbs.length > 0 && (
+                <div className="flex items-center gap-1.5 ml-1">
+                  <span className="text-border">•</span>
+                  {breadcrumbs.map((b, idx) => (
+                    <span key={b.id} className="flex items-center gap-1.5">
+                      <span className="truncate max-w-[120px]" title={b.name}>{b.name}</span>
+                      {idx < breadcrumbs.length - 1 && <ChevronRight className="w-3 h-3 opacity-50" />}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <button onClick={() => { onClose(); onEdit(item); }} className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" title="Modifica">
@@ -173,17 +207,69 @@ function ItemDetailDrawer({ item, onClose, onEdit }) {
                     ? <p className="text-sm text-muted-foreground italic">Nessun elemento figlio.</p>
                     : (
                       <div className="space-y-2">
-                        {details.children.map((child) => (
-                          <div key={child.id} className={`rounded-xl border p-3 ${child.materiale_mancante ? "bg-orange-50 border-orange-200" : "bg-surface border-border"}`}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="font-medium text-sm text-foreground flex-1">{child.name}</span>
-                              {child.materiale_mancante && (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200 font-semibold">Mancante</span>
-                              )}
+                        {details.children.map((child) => {
+                          const isMacro = item.type === "macro";
+                          const subCategories = isMacro 
+                            ? allItems.filter((i) => i.parent_id === child.id && i.type === "sotto") 
+                            : [];
+                          const isExpanded = !!expandedCategories[child.id];
+
+                          return (
+                            <div key={child.id} className={`rounded-xl border overflow-hidden transition-all ${child.materiale_mancante ? "bg-orange-50/40 border-orange-200" : "bg-surface border-border"}`}>
+                              <div 
+                                onClick={() => isMacro && subCategories.length > 0 && toggleCategory(child.id)}
+                                className={`p-3 flex items-center justify-between gap-2 ${isMacro && subCategories.length > 0 ? "cursor-pointer hover:bg-card/60" : ""}`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm text-foreground">{child.name}</span>
+                                    {child.materiale_mancante && (
+                                      <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200 font-semibold">Mancante</span>
+                                    )}
+                                  </div>
+                                </div>
+                                {isMacro && subCategories.length > 0 && (
+                                  <div className="text-muted-foreground p-1 rounded-md bg-card border border-border/50">
+                                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="px-3 pb-3">
+                                <NfcLinkRow itemId={child.id} compact />
+                              </div>
+
+                              <AnimatePresence initial={false}>
+                                {isMacro && isExpanded && subCategories.length > 0 && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                                    className="bg-card/50 border-t border-border/60 overflow-hidden"
+                                  >
+                                    <div className="p-3 space-y-2 pl-5 border-l-2 border-primary/30 m-2">
+                                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
+                                        Sotto-elementi ({subCategories.length})
+                                      </p>
+                                      {subCategories.map((sub) => (
+                                        <div key={sub.id} className={`rounded-lg border p-2.5 bg-surface ${sub.materiale_mancante ? "border-orange-200 bg-orange-50/20" : "border-border/60"}`}>
+                                          <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-xs font-medium text-foreground flex-1">{sub.name}</span>
+                                            {sub.materiale_mancante && (
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200 font-bold">Mancante</span>
+                                            )}
+                                          </div>
+                                          <NfcLinkRow itemId={sub.id} compact />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
                             </div>
-                            <NfcLinkRow itemId={child.id} compact />
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )
                   }
@@ -252,7 +338,6 @@ function ItemDetailDrawer({ item, onClose, onEdit }) {
   );
 }
 
-// ── Pannello NFC inline card ───────────────────────────────────────────────
 function NfcPanel({ item, onClose }) {
   return (
     <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}
@@ -273,12 +358,11 @@ function NfcPanel({ item, onClose }) {
   );
 }
 
-// ── PAGINA PRINCIPALE ──────────────────────────────────────────────────────
 export default function InventoryPage() {
   const { data: allItems = [], mutate } = useSWR("inventory", fetcher, { revalidateOnFocus: false });
 
   const [searchTerm, setSearchTerm]         = useState("");
-  const [statusFilter, setStatusFilter]     = useState("all"); // "all" | "mancante" | "danneggiato" | "rubato"
+  const [statusFilter, setStatusFilter]     = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
   const [page, setPage]                     = useState(1);
   const [isFormOpen, setIsFormOpen]         = useState(false);
@@ -343,7 +427,7 @@ export default function InventoryPage() {
 
   const handleDuplicateSimple = async (item) => {
     const suffix = prompt(`Duplica "${item.name}" — inserisci un suffisso per il nome:`, " copia");
-    if (suffix === null) return; // annullato
+    if (suffix === null) return;
     const newName = item.name + suffix.trim();
     if (!newName || newName === item.name) { alert("Nome non valido."); return; }
     setIsDuplicating(true);
@@ -356,7 +440,6 @@ export default function InventoryPage() {
     }
   };
 
-  // Badge stato per la card
   const getItemStatusBadge = (item) => {
     if (item.materiale_mancante)   return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200">Mancante</span>;
     if (item._hasDanneggiato)      return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">Danneggiato</span>;
@@ -370,7 +453,6 @@ export default function InventoryPage() {
       <div className="containerMod py-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
 
-          {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
             <div>
               <h1 className="text-3xl font-bold text-foreground mb-2">Gestione Inventario</h1>
@@ -383,9 +465,7 @@ export default function InventoryPage() {
             </button>
           </div>
 
-          {/* Filters */}
           <div className="bg-card p-4 rounded-xl border border-border mb-6 space-y-4">
-            {/* Cerca */}
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
@@ -396,7 +476,6 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            {/* Filtro stato materiale (radio) */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Stato materiale</p>
               <div className="flex flex-wrap gap-2">
@@ -412,7 +491,6 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            {/* Filtro tipo (macro/categoria/sotto) */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Tipo elemento</p>
               <div className="flex flex-wrap gap-2">
@@ -429,7 +507,6 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          {/* Items Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {displayedItems.map((item) => (
               <div key={item.id} className="relative">
@@ -441,7 +518,6 @@ export default function InventoryPage() {
                     nfcOpenId === item.id ? "border-primary shadow-md ring-1 ring-primary/20" : "border-border hover:border-primary"
                   }`}
                 >
-                  {/* Immagine */}
                   <div className="relative h-48 bg-surface flex items-center justify-center group">
                     {item.image_url ? (
                       <>
@@ -462,7 +538,6 @@ export default function InventoryPage() {
                     )}
                   </div>
 
-                  {/* Info */}
                   <div className="p-4">
                     <div className="flex items-start justify-between mb-1 gap-2">
                       <div className="min-w-0">
@@ -549,8 +624,12 @@ export default function InventoryPage() {
 
       <AnimatePresence>
         {detailItem && (
-          <ItemDetailDrawer item={detailItem} onClose={() => setDetailItem(null)}
-            onEdit={(item) => { setSelectedItem(item); setIsFormOpen(true); }} />
+          <ItemDetailDrawer 
+            item={detailItem} 
+            allItems={allItems} 
+            onClose={() => setDetailItem(null)}
+            onEdit={(item) => { setSelectedItem(item); setIsFormOpen(true); }} 
+          />
         )}
       </AnimatePresence>
     </div>
