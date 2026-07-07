@@ -13,6 +13,7 @@ import { PartyCard } from "@/components/parties/party-card";
 import { PartyFormModal } from "@/components/parties/party-form-modal";
 import { MaterialModal } from "@/components/parties/material-modal";
 import { PartyHistoryModal } from "@/components/parties/party-history-modal";
+import { supabaseBrowserClient } from "@/lib/supabase/client";
 import {
   getPartiesData,
   getPartyMaterials,
@@ -95,13 +96,10 @@ function SyncStatusBar({ status, rowsFetched, rowsUpserted, errorMsg, onRetry })
   );
 }
 
-// ── Incolla questa funzione qui ──
 const mapHandoffRelations = (partiesList) => {
   if (!partiesList) return [];
   return partiesList.map((party) => {
-    // 1. Cerca la festa di destinazione a cui passa la merce
     const targetParty = partiesList.find((p) => p.id === party.handoff_to_party_id);
-    // 2. Cerca se un'altra festa sta passando materiale a questa
     const sourceParty = partiesList.find((p) => p.handoff_to_party_id === party.id);
 
     return {
@@ -112,13 +110,10 @@ const mapHandoffRelations = (partiesList) => {
     };
   });
 };
-// ───────────────────────────────────
 
 export default function PartiesPage() {
-  // ── Toast ──
   const { toasts, toast, removeToast } = useToast();
 
-  // ── Sync / date ──
   const [selectedDate, setSelectedDate] = useState(todayISO());
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncMeta, setSyncMeta] = useState({ rowsFetched: 0, rowsUpserted: 0, errorMsg: "" });
@@ -126,11 +121,9 @@ export default function PartiesPage() {
   const [loadingSynced, setLoadingSynced] = useState(false);
   const debounceRef = useRef(null);
 
-  // ── Disponibilità macro ──
   const [usedMacroIds, setUsedMacroIds] = useState(new Set());
   const [isLoadingMacros, setIsLoadingMacros] = useState(false);
 
-  // ── Form party ──
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState([]);
   const [showFormModal, setShowFormModal] = useState(false);
@@ -153,6 +146,33 @@ export default function PartiesPage() {
   const [partyAlerts, setPartyAlerts] = useState({});
   const [partiesFor3Days, setPartiesFor3Days] = useState([]);
 
+  // ── LOGICA MODIFICATA: Recupero ruolo utente ──
+  const [currentUserRole, setCurrentUserRole] = useState(null);
+  
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      try {
+        const { data: { user }, error: authError } = await supabaseBrowserClient.auth.getUser();
+        if (authError) throw authError;
+
+        if (user) {
+          const { data, error: dbError } = await supabaseBrowserClient
+            .from('users')
+            .select('ruolo')
+            .eq('id', user.id)
+            .single();
+            
+          if (dbError) throw dbError;
+          if (data) setCurrentUserRole(data.ruolo);
+        }
+      } catch (err) {
+        console.error("Error fetching user role:", err);
+      }
+    };
+    fetchUserRole();
+  }, []);
+  // ──────────────────────────────────────────────
+
   const { data, error, isLoading, mutate } = useSWR("parties-data", fetcher, {
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
@@ -161,37 +181,40 @@ export default function PartiesPage() {
   const users = data?.users || [];
   const macroCategories = data?.macroCategories || [];
   
-  // ── Carica feste dei 3 giorni successivi per l'handoff nel form ──
+  // Caricamento riutilizzabile: scaffali/feste per la finestra di 3 giorni.
+  // Reso una funzione stabile (non solo dentro un useEffect) così può essere
+  // richiamato manualmente dopo ogni mutazione (crea/modifica/elimina festa,
+  // assegna/rimuovi materiale) e non solo quando cambia il filtro data della pagina.
+  // Prima questo non succedeva: dopo aver occupato uno scaffale, riaprendo il form
+  // per un'altra festa nello stesso giorno lo scaffale risultava ancora "libero"
+  // perché partiesFor3Days non veniva mai ricaricato.
+  const loadPartiesFor3Days = useCallback(async (baseDate) => {
+    if (!baseDate) return;
+    try {
+      const dateObj = new Date(baseDate + "T00:00:00");
+      const dates = [
+        baseDate,
+        new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+      ];
+
+      const allPartiesFor3Days = await Promise.all(dates.map((d) => getPartiesByDate(d)));
+      const combined = allPartiesFor3Days.flat();
+      setPartiesFor3Days(combined);
+    } catch (err) {
+      console.error("[v0] Errore caricamento feste 3 giorni:", err);
+      setPartiesFor3Days([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (!selectedDate) return;
-    const loadPartiesFor3Days = async () => {
-      try {
-        const dateObj = new Date(selectedDate + "T00:00:00");
-        const dates = [
-          selectedDate,
-          new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-          new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        ];
-        
-        // Carica tutte le feste dei 3 giorni
-        const allPartiesFor3Days = await Promise.all(dates.map((d) => getPartiesByDate(d)));
-        const combined = allPartiesFor3Days.flat();
-        setPartiesFor3Days(combined);
-        console.log("[v0] Feste caricate per 3 giorni:", { dates, count: combined.length, parties: combined });
-      } catch (err) {
-        console.error("[v0] Errore caricamento feste 3 giorni:", err);
-        setPartiesFor3Days([]);
-      }
-    };
-    
-    loadPartiesFor3Days();
-  }, [selectedDate]);
+    loadPartiesFor3Days(selectedDate);
+  }, [selectedDate, loadPartiesFor3Days]);
   
-  // ── Modifica qui: passiamo l'array nella nostra funzione ──
   const rawParties = syncedParties ?? [];
   const parties = mapHandoffRelations(rawParties);
 
-  // ── Sync ──
   const runSyncForDate = useCallback(async (date) => {
     setLoadingSynced(true);
     setSyncStatus("syncing");
@@ -238,12 +261,10 @@ export default function PartiesPage() {
     if (data?.macroCategories) cacheManager.cacheMacros(data.macroCategories).catch(console.error);
   }, [data]);
 
-  // Ricarica macro usate quando cambia la lista feste
   useEffect(() => {
     getUsedMacroIds(editParty?.id || null, editParty?.data || selectedDate).then((ids) => setUsedMacroIds(ids));
   }, [syncedParties]);
 
-  // Gerarchia speciale per la creazione — si aggiorna quando cambiano le macro selezionate
   useEffect(() => {
     if (!showFormModal || editParty) return;
     getAvailableItemsForSpecialParty("__new__")
@@ -254,21 +275,18 @@ export default function PartiesPage() {
       .catch(() => setSpecialItemHierarchy([]));
   }, [showFormModal, selectedMaterials, editParty]);
 
-  // ── Alerts perdite ──
   const loadAlertsForParties = async (partiesList) => {
     if (!partiesList?.length) return;
     const results = await Promise.allSettled(
       partiesList.map(async (party) => {
         const history = await getPartyHistory(party.id);
-        // activeLosses = solo quelle non resolved → usate per gli alert
-        // losses = tutte (anche resolved) → usate per lo storico nel modal
         const active = history.activeLosses || [];
         return {
           id: party.id,
           lossCount: active.length,
           hasMissingMaterial: active.some((l) => l.tipo === "mancante"),
-          losses: active,           // card mostra solo attive
-          allLosses: history.losses || [], // storico completo per il modal
+          losses: active,
+          allLosses: history.losses || [],
         };
       })
     );
@@ -284,7 +302,6 @@ export default function PartiesPage() {
     finally { setLoadingMaterials(false); }
   };
 
-  // ── Status helpers ──
   const getStatusColor = (stato) => ({
     iniziale: "bg-yellow-100 text-yellow-800 border-yellow-200",
     caricato_scaffale: "bg-red-100 text-red-800 border-red-200",
@@ -309,21 +326,19 @@ export default function PartiesPage() {
     scaricato_scaffale: <Home className="w-4 h-4" />,
   })[stato] || <Clock className="w-4 h-4" />;
 
-  // ── CRUD ──
   const handleAddParty = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       await createParty({ ...newParty, selectedMaterials, selectedSingleItems, animatori_ids: newParty.animatori_ids || [], responsabili_ids: newParty.responsabili_ids || [], drivers_ids: newParty.drivers_ids || [] });
-      // Chiudi subito il form per feedback immediato
       setShowFormModal(false);
       setNewParty({ nome: "", data: "", luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], responsabili_ids: [], drivers_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
       setSelectedMaterials([]);
       setSelectedSingleItems([]);
       toast("Festa creata con successo!", "success");
-      // Ricarica in background
       runSyncForDate(selectedDate);
+      loadPartiesFor3Days(selectedDate);
     } catch (err) {
       console.error("Error creating party:", err);
       toast("Errore nella creazione della festa", "error");
@@ -342,13 +357,13 @@ export default function PartiesPage() {
       handoff_to_party_id: party.handoff_to_party_id || null,
       handoff_macro_ids:   Array.isArray(party.handoff_macro_ids) ? party.handoff_macro_ids : [],
     });
-    // Carica in parallelo: macro usate (per disabilitare) + macro già assegnate (per pre-selezionare)
     const [usedIds, assignedMacroIds] = await Promise.all([
       getUsedMacroIds(party.id, party.data),
       getPartyMacroIds(party.id),
     ]);
     setUsedMacroIds(usedIds);
-    setSelectedMaterials(assignedMacroIds);  // pre-seleziona le macro già assegnate
+    setSelectedMaterials(assignedMacroIds);
+    loadPartiesFor3Days(party.data); // scaffali sempre aggiornati per la data della festa in modifica
     setShowFormModal(true);
   };
 
@@ -357,12 +372,14 @@ export default function PartiesPage() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await updateParty(editParty.id, { ...editParty, selectedMaterials, animatori_ids: editParty.animatori_ids || [], responsabili_ids: editParty.responsabili_ids || [], drivers_ids: editParty.drivers_ids || [], handoff_to_party_id: editParty.handoff_to_party_id || null, handoff_macro_ids: editParty.handoff_macro_ids || [] });
+      await updateParty(editParty.id, { ...editParty, selectedMaterials, selectedSingleItems, animatori_ids: editParty.animatori_ids || [], responsabili_ids: editParty.responsabili_ids || [], drivers_ids: editParty.drivers_ids || [], handoff_to_party_id: editParty.handoff_to_party_id || null, handoff_macro_ids: editParty.handoff_macro_ids || [] });
       setShowFormModal(false);
       setEditParty(null);
       setSelectedMaterials([]);
+      setSelectedSingleItems([]);
       toast("Festa aggiornata con successo!", "success");
       runSyncForDate(selectedDate);
+      loadPartiesFor3Days(selectedDate);
     } catch (err) {
       console.error("Error updating party:", err);
       toast("Errore nell'aggiornamento della festa", "error");
@@ -392,18 +409,17 @@ export default function PartiesPage() {
   const handleDeleteParty = async (partyId) => {
     if (!confirm("Sei sicuro di voler eliminare questa festa?")) return;
     try {
-      // Rimuovi subito dalla lista locale per feedback immediato
       setSyncedParties((prev) => (prev || []).filter((p) => p.id !== partyId));
       await deleteParty(partyId);
       await cacheManager.deletePartyFromCache(partyId);
       toast("Festa eliminata", "success");
-      // Ricarica in background per aggiornare scaffali liberi ecc.
       runSyncForDate(selectedDate);
+      loadPartiesFor3Days(selectedDate);
     } catch (err) {
       console.error("Error deleting party:", err);
       toast("Errore nell'eliminazione della festa", "error");
-      // Ripristina la lista in caso di errore
       runSyncForDate(selectedDate);
+      loadPartiesFor3Days(selectedDate);
     }
   };
 
@@ -441,8 +457,6 @@ export default function PartiesPage() {
         )}
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-
-          {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Gestione Feste</h1>
@@ -457,6 +471,7 @@ export default function PartiesPage() {
                 setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], responsabili_ids: [], drivers_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
                 setSelectedMaterials([]);
                 setSelectedSingleItems([]);
+                loadPartiesFor3Days(selectedDate); // scaffali sempre aggiornati all'apertura del form
                 setShowFormModal(true);
               }}
               className="btn-primary flex items-center space-x-2 whitespace-nowrap"
@@ -465,7 +480,6 @@ export default function PartiesPage() {
             </button>
           </div>
 
-          {/* Date Picker + Sync */}
           <div className="bg-card p-5 rounded-xl border border-border">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex items-center gap-3 flex-1">
@@ -493,7 +507,6 @@ export default function PartiesPage() {
             </AnimatePresence>
           </div>
 
-          {/* Ricerca + filtri */}
           <div className="bg-card p-6 rounded-xl border border-border space-y-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -516,7 +529,6 @@ export default function PartiesPage() {
             </div>
           </div>
 
-          {/* Lista feste */}
           <div className="grid gap-6">
             {loadingSynced ? (
               Array.from({ length: 3 }).map((_, i) => (
@@ -558,14 +570,12 @@ export default function PartiesPage() {
             )}
           </div>
 
-          {/* Modali */}
           <PartyFormModal
             isOpen={showFormModal}
             isEdit={editParty !== null}
             party={editParty || newParty}
             onPartyChange={(p) => {
               if (editParty) setEditParty(p); else setNewParty(p);
-              // Se la data cambia, ricalcola le macro in uso per quel giorno
               const currentParty = editParty || newParty;
               if (p.data && p.data !== currentParty.data) {
                 setIsLoadingMacros(true);
@@ -573,6 +583,8 @@ export default function PartiesPage() {
                   setUsedMacroIds(ids);
                   setIsLoadingMacros(false);
                 });
+                // Ricarica anche gli scaffali occupati per la nuova data selezionata nel form
+                loadPartiesFor3Days(p.data);
               }
             }}
             users={users}
@@ -596,6 +608,7 @@ export default function PartiesPage() {
             specialItemHierarchy={specialItemHierarchy}
             selectedSingleItems={selectedSingleItems}
             onSingleItemToggle={toggleSingleItemSelection}
+            currentUserRole={currentUserRole} // PROP AGGIUNTA
           />
 
           <MaterialModal

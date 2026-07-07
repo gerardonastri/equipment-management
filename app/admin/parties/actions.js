@@ -622,24 +622,7 @@ export async function updateParty(partyId, formData) {
     .eq("id", partyId)
     .single();
 
-  const partyData = {
-    nome:               formData.nome,
-    data:               formData.data,
-    luogo:              formData.luogo,
-    animatore_id:       formData.animatore_id       || null,
-    magazziniere_id:    formData.magazziniere_id    || null,
-    animatori_ids:      formData.animatori_ids      || [],
-    responsabili_ids:   formData.responsabili_ids   || [],
-    drivers_ids:        formData.drivers_ids        || [],
-    handoff_to_party_id: formData.handoff_to_party_id || null,
-    handoff_macro_ids:  formData.handoff_macro_ids  || [],
-    stato:              formData.stato,
-    note:               formData.note,
-    shelves:            formData.shelves.join(","),
-  };
-
-  const { data, error } = await supabase.from("parties").update(partyData).eq("id", partyId).select();
-  if (error) throw error;
+  let materialAdded = false;
 
   // ── Sync materiale (macro) ────────────────────────────────────────────────
   if (formData.selectedMaterials !== undefined) {
@@ -659,19 +642,69 @@ export async function updateParty(partyId, formData) {
 
     const toAdd = newMacroIds.filter((id) => !existingMacroIds.includes(id));
     if (toAdd.length > 0) {
+      materialAdded = true; // Rilevata aggiunta di macro
       const assignments = toAdd.map((id) => ({ party_id: partyId, inventory_id: id }));
       const { error: matError } = await supabase.from("party_inventory").insert(assignments);
       if (matError) console.error("[v0] Error updating party materials:", matError);
     }
   }
 
+  // ── Sync materiale (singoli, per coerenza con createParty) ─────────────────
+  if (formData.selectedSingleItems !== undefined) {
+    const { data: existingSingles } = await supabase
+      .from("party_inventory")
+      .select("inventory_id, inventory_items!inner(type)")
+      .eq("party_id", partyId)
+      .neq("inventory_items.type", "macro");
+
+    const existingSingleIds = (existingSingles || []).map((m) => m.inventory_id);
+    const newSingleIds = formData.selectedSingleItems || [];
+
+    const toRemoveSingles = existingSingleIds.filter((id) => !newSingleIds.includes(id));
+    if (toRemoveSingles.length > 0) {
+      await supabase.from("party_inventory").delete().eq("party_id", partyId).in("inventory_id", toRemoveSingles);
+    }
+
+    const toAddSingles = newSingleIds.filter((id) => !existingSingleIds.includes(id));
+    if (toAddSingles.length > 0) {
+      materialAdded = true; // Rilevata aggiunta di elementi singoli
+      const assignments = toAddSingles.map((id) => ({ party_id: partyId, inventory_id: id }));
+      await supabase.from("party_inventory").insert(assignments);
+    }
+  }
+
+  // ── LOGICA RESET STATO ──
+  // Se è stato aggiunto nuovo materiale, la festa torna allo stato iniziale
+  let finalStato = formData.stato;
+  if (materialAdded && prevParty?.stato !== "iniziale") {
+    finalStato = "iniziale";
+  }
+
+  const partyData = {
+    nome:               formData.nome,
+    data:               formData.data,
+    luogo:              formData.luogo,
+    animatore_id:       formData.animatore_id       || null,
+    magazziniere_id:    formData.magazziniere_id    || null,
+    animatori_ids:      formData.animatori_ids      || [],
+    responsabili_ids:   formData.responsabili_ids   || [],
+    drivers_ids:        formData.drivers_ids        || [],
+    handoff_to_party_id: formData.handoff_to_party_id || null,
+    handoff_macro_ids:  formData.handoff_macro_ids  || [],
+    stato:              finalStato,
+    note:               formData.note,
+    shelves:            formData.shelves.join(","),
+  };
+
+  const { data, error } = await supabase.from("parties").update(partyData).eq("id", partyId).select();
+  if (error) throw error;
+
   // ── Sync checks in base al cambio di stato ───────────────────────────────
   const prevStato = prevParty?.stato;
-  const newStato  = formData.stato;
 
-  if (prevStato !== newStato) {
-    console.log(`[v0] Stato cambiato: ${prevStato} → ${newStato} — sincronizzo i check`);
-    await syncChecksForParty(supabase, partyId, newStato, {
+  if (prevStato !== finalStato) {
+    console.log(`[v0] Stato cambiato: ${prevStato} → ${finalStato} — sincronizzo i check`);
+    await syncChecksForParty(supabase, partyId, finalStato, {
       animatore_id:    formData.animatore_id    || prevParty?.animatore_id    || null,
       magazziniere_id: formData.magazziniere_id || prevParty?.magazziniere_id || null,
       animatori_ids:   formData.animatori_ids   || prevParty?.animatori_ids   || [],

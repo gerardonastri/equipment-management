@@ -223,6 +223,10 @@ export async function getPartyDataForShelf(shelfId) {
   try {
     const supabase = await createClient();
 
+    // ── LOGICA SCAFFALE VIRTUALE (Handoff) ──
+    const isVirtual = typeof shelfId === 'string' && shelfId.toUpperCase().startsWith("V");
+    const baseShelf = isVirtual ? shelfId.substring(1) : shelfId;
+
     const { data: parties, error: partyError } = await supabase
       .from("parties")
       .select(`
@@ -239,7 +243,7 @@ export async function getPartyDataForShelf(shelfId) {
         .split(",")
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
-      return shelfList.includes(shelfId.trim().toLowerCase());
+      return shelfList.includes(baseShelf.toLowerCase());
     });
 
     if (matchingParties.length === 0) {
@@ -269,7 +273,15 @@ export async function getPartyDataForShelf(shelfId) {
       }
     }
 
-    // MODIFICA IMPORTANTE: recuperiamo anche i check_items per la ripresa del check
+    // ── FLAG DESTINAZIONE HANDOFF ──
+    const { data: sourceParties } = await supabase
+      .from("parties")
+      .select("id")
+      .eq("handoff_to_party_id", party.id)
+      .neq("stato", "scaricato_scaffale");
+      
+    party._isHandoffDestination = sourceParties && sourceParties.length > 0;
+
     const { data: checks, error: checksError } = await supabase
       .from("checks")
       .select("*, check_items(inventory_id, stato)")
@@ -566,7 +578,6 @@ export async function authenticateUser(name, code) {
   }
 }
 
-// MODIFICA IMPORTANTE: Aggiunto parametro existingCheckId
 export async function submitCheck(
   partyId,
   userId,
@@ -580,13 +591,14 @@ export async function submitCheck(
   materialSmarrito = false,
   itemsToMarkMissing = [],
   itemsResults = [],
-  existingCheckId = null
+  existingCheckId = null,
+  isVirtualShelf = false // <-- NUOVO PARAMETRO PER SCAFFALE VIRTUALE
 ) {
   try {
     const supabase = await createClient();
 
     const allowedRoles = {
-      deposito_scaffale: ["magazziniere", "amministratore"],
+      deposito_scaffale: ["magazziniere", "amministratore", "animatore", "responsabile", "driver"],
       scaffale_furgone:  ["animatore", "magazziniere", "amministratore", "responsabile", "driver"],
       furgone_scaffale:  ["animatore", "magazziniere", "amministratore", "responsabile", "driver"],
       scaffale_deposito: ["magazziniere", "amministratore"],
@@ -605,6 +617,7 @@ export async function submitCheck(
 
     const currentIndex = checkSequence.indexOf(checkType);
 
+    // ── BLOCCO CONTROLLO SEQUENZIALE ──
     if (currentIndex > 0) {
       const previousCheckType = checkSequence[currentIndex - 1];
 
@@ -616,6 +629,13 @@ export async function submitCheck(
         .single();
 
       if (prevError || !previousCheck) {
+        // HINT SPECIFICO PER HANDOFF
+        if (checkType === "furgone_scaffale" && !isVirtualShelf) {
+          const { data: isDest } = await supabase.from("parties").select("id").eq("handoff_to_party_id", partyId).maybeSingle();
+          if (isDest) {
+            return { error: `Prima di scaricare il materiale al deposito, devi confermare la ricezione dallo Scaffale Virtuale (es: V${shelfId})!` };
+          }
+        }
         return {
           error: `Devi completare prima il check: ${previousCheckType.replace(/_/g, " ")}`,
         };
@@ -664,15 +684,24 @@ export async function submitCheck(
       if (updateError) console.error("[v0] Error marking items as missing:", updateError);
     }
 
+    // ── ASSEGNAZIONE NOTE DINAMICHE PER SCAFFALE VIRTUALE ──
+    let checkNotes = existingCheckId 
+      ? `Check aggiornato e sbloccato: ${checkedCount}/${totalItems} elementi verificati` 
+      : `Check completato: ${checkedCount}/${totalItems} elementi verificati`;
+
+    if (isVirtualShelf) {
+      if (checkType === "furgone_scaffale") checkNotes = `Passaggio Materiale Uscita: ${checkedCount}/${totalItems}`;
+      if (checkType === "deposito_scaffale") checkNotes = `Materiale Ricevuto (Handoff): ${checkedCount}/${totalItems}`;
+    }
+
     let insertedCheck;
 
     if (existingCheckId) {
-      // 1A. AGGIORNAMENTO DI UN CHECK ESISTENTE (Sbloccato da Admin)
       const { data: updatedCheck, error: updateCheckError } = await supabase
         .from("checks")
         .update({
           user_id: userId,
-          notes: `Check aggiornato e sbloccato: ${checkedCount}/${totalItems} elementi verificati`,
+          notes: checkNotes,
           materiale_smarrito: materialSmarrito,
         })
         .eq("id", existingCheckId)
@@ -682,17 +711,15 @@ export async function submitCheck(
       if (updateCheckError) throw updateCheckError;
       insertedCheck = updatedCheck;
 
-      // Svuota i vecchi item per far posto a quelli aggiornati
       await supabase.from("check_items").delete().eq("check_id", existingCheckId);
     } else {
-      // 1B. CREAZIONE DI UN NUOVO CHECK PRINCIPALE
       const { data: newCheck, error: insertError } = await supabase
         .from("checks")
         .insert({
           party_id: partyId,
           user_id: userId,
           type: checkType,
-          notes: `Check completato: ${checkedCount}/${totalItems} elementi verificati`,
+          notes: checkNotes,
           materiale_smarrito: materialSmarrito,
         })
         .select()
@@ -702,7 +729,6 @@ export async function submitCheck(
       insertedCheck = newCheck;
     }
 
-    // 2. SALVATAGGIO DEI DETTAGLI MATERIALE NELLA TABELLA CHECK_ITEMS
     if (itemsResults && itemsResults.length > 0) {
       const checkItemsRows = itemsResults.map((item) => ({
         check_id: insertedCheck.id,
@@ -716,12 +742,30 @@ export async function submitCheck(
       await supabase.from("check_items").insert(checkItemsRows);
     }
 
-    // Aggiornamento status party (solo se era un check nuovo per prudenza, o comunque procediamo)
+    // ── GESTIONE STATI E CHECK COMPLEMENTARI (Handoff Virtuale) ──
     let newStatus = null;
-    if (checkType === "deposito_scaffale") newStatus = "caricato_scaffale";
-    else if (checkType === "scaffale_furgone") newStatus = "caricato_furgone";
-    else if (checkType === "furgone_scaffale") newStatus = "scaricato_furgone";
-    else if (checkType === "scaffale_deposito") newStatus = "scaricato_scaffale";
+    if (isVirtualShelf) {
+      if (checkType === "deposito_scaffale") { // FESTA B RICEVE IN HANDOFF
+        newStatus = "caricato_furgone";
+        if (!existingCheckId) {
+          await supabase.from("checks").insert({
+            party_id: partyId, user_id: userId, type: "scaffale_furgone", notes: "Check automatico (Ricezione Handoff completata)", materiale_smarrito: false
+          });
+        }
+      } else if (checkType === "furgone_scaffale") { // FESTA A CEDE IN HANDOFF
+        newStatus = "scaricato_scaffale";
+        if (!existingCheckId) {
+          await supabase.from("checks").insert({
+            party_id: partyId, user_id: userId, type: "scaffale_deposito", notes: "Check automatico (Cessione Handoff completata)", materiale_smarrito: false
+          });
+        }
+      }
+    } else {
+      if (checkType === "deposito_scaffale") newStatus = "caricato_scaffale";
+      else if (checkType === "scaffale_furgone") newStatus = "caricato_furgone";
+      else if (checkType === "furgone_scaffale") newStatus = "scaricato_furgone";
+      else if (checkType === "scaffale_deposito") newStatus = "scaricato_scaffale";
+    }
 
     if (newStatus) partyUpdates.stato = newStatus;
 
@@ -732,17 +776,16 @@ export async function submitCheck(
         .eq("id", partyId);
     }
 
-    // Notifiche...
     const checkTypeNames = {
-      deposito_scaffale: "Carico dal Deposito allo Scaffale",
+      deposito_scaffale: isVirtualShelf ? "Ricezione in Handoff" : "Carico dal Deposito allo Scaffale",
       scaffale_furgone: "Carico dallo Scaffale al Furgone",
-      furgone_scaffale: "Scarico dal Furgone allo Scaffale",
+      furgone_scaffale: isVirtualShelf ? "Cessione in Handoff" : "Scarico dal Furgone allo Scaffale",
       scaffale_deposito: "Scarico dallo Scaffale al Deposito",
     };
 
     await supabase.from("notifications").insert({
-      titolo: existingCheckId ? `Check Aggiornato - ${checkType.replace(/_/g, " ")}` : `Check Completato - ${checkType.replace(/_/g, " ")}`,
-      messaggio: `${userName} ha ${existingCheckId ? 'aggiornato' : 'completato'} il check per la festa "${partyName}" (Scaffale ${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}${materialSmarrito ? " - MATERIALE SMARRITO" : ""}`,
+      titolo: existingCheckId ? `Check Aggiornato - ${checkTypeNames[checkType]}` : `Check Completato - ${checkTypeNames[checkType]}`,
+      messaggio: `${userName} ha ${existingCheckId ? 'aggiornato' : 'completato'} il check per la festa "${partyName}" (Scaffale ${isVirtualShelf ? "Virtuale " : ""}${shelfId}). Elementi verificati: ${checkedCount}/${totalItems}${materialSmarrito ? " - MATERIALE SMARRITO" : ""}`,
       tipo: "check",
       letto: false,
     });
@@ -753,84 +796,11 @@ export async function submitCheck(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `${materialSmarrito ? "⚠️" : "✅"} Check ${existingCheckId ? 'aggiornato' : 'completato'}!\n\nFesta: ${partyName}\nLocation: ${currentParty?.luogo || "N/D"}\nScaffale: ${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""}`,
+          message: `${materialSmarrito ? "⚠️" : "✅"} Check ${existingCheckId ? 'aggiornato' : 'completato'}!\n\nFesta: ${partyName}\nLocation: ${currentParty?.luogo || "N/D"}\nScaffale: ${isVirtualShelf ? "Virtuale " : ""}${shelfId}\nTipo: ${checkTypeNames[checkType]}\nUtente: ${userName}\nCompletati: ${checkedCount}/${totalItems}${materialSmarrito ? "\n⚠️ MATERIALE SMARRITO" : ""}`,
         }),
       });
     } catch (telegramError) {
       console.error("[v0] Error sending Telegram notification:", telegramError);
-    }
-
-    // ── Logica Handoff ──
-    if (checkType === "furgone_scaffale" && !existingCheckId) {
-      const { data: currentPartyFull } = await supabase
-        .from("parties")
-        .select("handoff_to_party_id, handoff_macro_ids")
-        .eq("id", partyId)
-        .single();
-
-      if (currentPartyFull?.handoff_to_party_id && currentPartyFull.handoff_macro_ids?.length > 0) {
-        const destPartyId = currentPartyFull.handoff_to_party_id;
-
-        const { data: existingDestChecks } = await supabase
-          .from("checks")
-          .select("type")
-          .eq("party_id", destPartyId)
-          .in("type", ["deposito_scaffale", "scaffale_furgone"]);
-
-        const existingTypes = existingDestChecks?.map(c => c.type) || [];
-        const checksToInsert = [];
-
-        if (!existingTypes.includes("deposito_scaffale")) {
-          checksToInsert.push({
-            party_id:           destPartyId,
-            user_id:            userId,
-            type:               "deposito_scaffale",
-            notes:              `Check automatico — materiale ricevuto in handoff dalla festa sorgente.`,
-            materiale_smarrito: false,
-          });
-        }
-
-        if (!existingTypes.includes("scaffale_furgone")) {
-          checksToInsert.push({
-            party_id:           destPartyId,
-            user_id:            userId,
-            type:               "scaffale_furgone",
-            notes:              `Check automatico — materiale già nel furgone. L'animatore partirà direttamente dalla fase di ritorno (scarico furgone).`,
-            materiale_smarrito: false,
-          });
-        }
-
-        if (checksToInsert.length > 0) {
-          await supabase.from("checks").insert(checksToInsert);
-          
-          await supabase
-            .from("parties")
-            .update({ stato: "caricato_furgone" })
-            .eq("id", destPartyId);
-        }
-
-        const { data: existingSrc } = await supabase
-          .from("checks")
-          .select("id")
-          .eq("party_id", partyId)
-          .eq("type", "scaffale_deposito")
-          .maybeSingle();
-
-        if (!existingSrc) {
-          await supabase.from("checks").insert({
-            party_id:           partyId,
-            user_id:            userId,
-            type:               "scaffale_deposito",
-            notes:              `Check automatico — la festa è conclusa sullo scaffale virtuale, salta l'ultimo controllo del magazziniere.`,
-            materiale_smarrito: false,
-          });
-          
-          await supabase
-            .from("parties")
-            .update({ stato: "scaricato_scaffale" })
-            .eq("id", partyId);
-        }
-      }
     }
 
     revalidatePath(`/admin/check/${shelfId}`);

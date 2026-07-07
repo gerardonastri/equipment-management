@@ -211,6 +211,9 @@ export default function CheckPage({ params }) {
   const resolvedParams = use(params);
   const shelfId = resolvedParams.shelfId;
 
+  // ── LOGICA SCAFFALE VIRTUALE (V12, VH) ──
+  const isVirtualShelf = typeof shelfId === 'string' && shelfId.toUpperCase().startsWith("V");
+
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginData, setLoginData] = useState({ name: "", code: "" });
@@ -224,7 +227,6 @@ export default function CheckPage({ params }) {
   const [userRole, setUserRole] = useState(null);
   const [lastScannedMessage, setLastScannedMessage] = useState(null);
   
-  // STATO PER SBLOCCO CHECK (MODALITÀ AGGIUNTA)
   const [resumingCheckId, setResumingCheckId] = useState(null);
 
   const [damageModal, setDamageModal] = useState(null);
@@ -256,10 +258,39 @@ export default function CheckPage({ params }) {
   const allPartyShelves = data?.allPartyShelves || [];
   const existingLosses = data?.existingLosses || [];
 
+  const isSource = !!partyData?.handoff_to_party_id;
+  const isDestination = !!partyData?._isHandoffDestination;
+
   const reportedItemIds = new Set([
     ...existingLosses.map((l) => l.inventory_id),
     ...Object.keys(sessionReportedItems),
   ]);
+
+  // ── DEFINIZIONE DINAMICA CHECK TYPES (Fisico vs Virtuale) ──
+  const baseCheckTypes = {
+    deposito_scaffale: { id: "deposito_scaffale",  name: "Carico dal Deposito allo Scaffale",  icon: Home,    color: "text-primary",   allowedRoles: ["magazziniere", "amministratore", "animatore", "responsabile", "driver"] },
+    scaffale_furgone:  { id: "scaffale_furgone",   name: "Carico dallo Scaffale al Furgone",   icon: Truck,   color: "text-secondary", allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
+    furgone_scaffale:  { id: "furgone_scaffale",   name: "Scarico dal Furgone allo Scaffale",  icon: MapPin,  color: "text-accent",    allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
+    scaffale_deposito: { id: "scaffale_deposito",  name: "Scarico dallo Scaffale al Deposito", icon: Package, color: "text-primary",   allowedRoles: ["magazziniere", "amministratore"] },
+  };
+
+  let checkTypes = [];
+  if (isVirtualShelf) {
+    if (isSource) {
+      checkTypes.push({ ...baseCheckTypes.furgone_scaffale, name: "Passaggio Materiale (Cessione)", icon: Send, color: "text-indigo-500" });
+    }
+    if (isDestination) {
+      checkTypes.push({ ...baseCheckTypes.deposito_scaffale, name: "Materiale Ricevuto (Handoff)", icon: Package, color: "text-violet-500" });
+    }
+  } else {
+    if (isSource) {
+      checkTypes.push(baseCheckTypes.deposito_scaffale, baseCheckTypes.scaffale_furgone);
+    } else if (isDestination) {
+      checkTypes.push(baseCheckTypes.furgone_scaffale, baseCheckTypes.scaffale_deposito);
+    } else {
+      checkTypes = Object.values(baseCheckTypes);
+    }
+  }
 
   useEffect(() => {
     const channel = new BroadcastChannel("nfc_scan_channel");
@@ -350,13 +381,6 @@ export default function CheckPage({ params }) {
     }
   }, []);
 
-  const checkTypes = [
-    { id: "deposito_scaffale",  name: "Carico dal Deposito allo Scaffale",  icon: Home,    color: "text-primary",   allowedRoles: ["magazziniere", "amministratore"] },
-    { id: "scaffale_furgone",   name: "Carico dallo Scaffale al Furgone",   icon: Truck,   color: "text-secondary", allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
-    { id: "furgone_scaffale",   name: "Scarico dal Furgone allo Scaffale",  icon: MapPin,  color: "text-accent",    allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
-    { id: "scaffale_deposito",  name: "Scarico dallo Scaffale al Deposito", icon: Package, color: "text-primary",   allowedRoles: ["magazziniere", "amministratore"] },
-  ];
-
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -376,7 +400,6 @@ export default function CheckPage({ params }) {
     }
   };
 
-  // LOGICA SBLOCCO E RIPRESA CHECK
   const handleResumeCheck = (e, typeId, checkObj) => {
     e.stopPropagation();
     setResumingCheckId(checkObj.id);
@@ -461,7 +484,8 @@ export default function CheckPage({ params }) {
         materialSmarrito, 
         uncheckedItemIds,
         itemsResults,
-        resumingCheckId // PASSATO AL BACKEND PER L'UPSERT
+        resumingCheckId,
+        isVirtualShelf // <-- PASSATO AL BACKEND PER LA LOGICA HANDOFF
       );
       
       if (result.error) { alert(`Errore: ${result.error}`); return; }
@@ -721,7 +745,7 @@ export default function CheckPage({ params }) {
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">{!shelfId ? "Caricamento..." : `Caricamento festa per scaffale ${shelfId}...`}</p>
+          <p className="text-muted-foreground">{!shelfId ? "Caricamento..." : `Caricamento festa per scaffale ${isVirtualShelf ? "virtuale " : ""}${shelfId}...`}</p>
         </div>
       </div>
     );
@@ -734,7 +758,7 @@ export default function CheckPage({ params }) {
           <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
             <Package className="w-8 h-8 text-muted-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale {shelfId}</h1>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale {isVirtualShelf ? "Virtuale " : ""}{shelfId}</h1>
           <p className="text-muted-foreground mb-6">Non è stata trovata nessuna festa assegnata a questo scaffale. Contatta l'amministratore.</p>
         </motion.div>
       </div>
@@ -749,7 +773,7 @@ export default function CheckPage({ params }) {
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale Libero</h1>
-          <p className="text-muted-foreground">Tutti i check per la festa <span className="font-semibold text-foreground">"{partyData?.nome}"</span> sono stati completati. Lo scaffale <span className="font-semibold">{shelfId}</span> è ora disponibile.</p>
+          <p className="text-muted-foreground">Tutti i check per la festa <span className="font-semibold text-foreground">"{partyData?.nome}"</span> sono stati completati. Lo scaffale <span className="font-semibold">{isVirtualShelf ? "virtuale " : ""}{shelfId}</span> è ora disponibile.</p>
         </motion.div>
       </div>
     );
@@ -813,7 +837,7 @@ export default function CheckPage({ params }) {
             <div className="w-16 h-16 gradient-primary rounded-full flex items-center justify-center mx-auto mb-4">
               <Package className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Scaffale {shelfId}</h1>
+            <h1 className="text-2xl font-bold text-foreground mb-2">Accesso {isVirtualShelf ? "Scaffale Virtuale" : "Scaffale"} {shelfId}</h1>
             <p className="text-muted-foreground">Inserisci le tue credenziali per accedere al check</p>
             {partyData && <p className="text-sm text-primary mt-2 font-medium">Festa: {partyData.nome}</p>}
           </div>
@@ -983,7 +1007,9 @@ export default function CheckPage({ params }) {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-2xl mx-auto">
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <div className="flex items-start justify-between gap-3 mb-4">
-                <h1 className="text-2xl font-bold text-foreground">Scaffale {shelfId}</h1>
+                <h1 className="text-2xl font-bold text-foreground">
+                  {isVirtualShelf ? "Scaffale Virtuale (Handoff)" : "Scaffale"} {isVirtualShelf ? shelfId.substring(1) : shelfId}
+                </h1>
                 <button
                   onClick={handleDownloadList}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 text-sm font-medium transition-all shrink-0"
@@ -1008,11 +1034,11 @@ export default function CheckPage({ params }) {
                     {allPartyShelves.map((s) => (
                       <span key={s}
                         className={`text-sm font-bold px-3 py-1 rounded-full border ${
-                          s === shelfId
+                          s === (isVirtualShelf ? shelfId.substring(1) : shelfId)
                             ? "bg-primary/10 text-primary border-primary/30"
                             : "bg-surface text-muted-foreground border-border"
                         }`}>
-                        #{s}{s === shelfId ? " ← questo" : ""}
+                        #{s}{s === (isVirtualShelf ? shelfId.substring(1) : shelfId) ? " ← questo" : ""}
                       </span>
                     ))}
                   </div>
@@ -1022,6 +1048,13 @@ export default function CheckPage({ params }) {
 
             <div className="space-y-4">
               <h2 className="text-xl font-semibold text-foreground">Seleziona il tipo di check</h2>
+              
+              {checkTypes.length === 0 && (
+                <div className="p-4 bg-amber-50 text-amber-700 rounded-lg text-sm font-medium border border-amber-200">
+                  Questa festa non prevede passaggi di materiale (Handoff), oppure lo scaffale virtuale non è applicabile.
+                </div>
+              )}
+
               <div className="grid gap-4">
                 {checkTypes.map((type, index) => {
                   const Icon = type.icon;
@@ -1114,7 +1147,6 @@ export default function CheckPage({ params }) {
               )}
             </AnimatePresence>
 
-            {/* BANNER RIPRESA CHECK */}
             {resumingCheckId && (
               <div className="bg-amber-100 border border-amber-300 text-amber-800 px-4 py-3 rounded-xl mb-6 flex items-start gap-3 shadow-sm">
                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
@@ -1130,13 +1162,16 @@ export default function CheckPage({ params }) {
                 <div>
                   <h2 className="text-xl font-semibold text-foreground">Progresso Check</h2>
                   <div className="flex flex-wrap gap-1 mt-1">
-                    {allPartyShelves.map((s) => (
-                      <span key={s} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                        s === shelfId
-                          ? "bg-primary text-white border-primary"
-                          : "bg-surface text-muted-foreground border-border"
-                      }`}>#{s}</span>
-                    ))}
+                    {allPartyShelves.map((s) => {
+                      const currentBase = isVirtualShelf ? shelfId.substring(1) : shelfId;
+                      return (
+                        <span key={s} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                          s === currentBase
+                            ? "bg-primary text-white border-primary"
+                            : "bg-surface text-muted-foreground border-border"
+                        }`}>#{s}</span>
+                      );
+                    })}
                   </div>
                 </div>
                 <span className="text-sm text-muted-foreground">{getCheckedCount()}/{getTotalItems()} completati</span>

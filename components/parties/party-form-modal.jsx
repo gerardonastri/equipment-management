@@ -29,6 +29,7 @@ export function PartyFormModal({
   specialItemHierarchy,
   selectedSingleItems,
   onSingleItemToggle,
+  currentUserRole,
 }) {
   const [isSpecial, setIsSpecial] = useState(false);
   const [expandedMacro, setExpandedMacro] = useState({});
@@ -93,6 +94,9 @@ export function PartyFormModal({
       setHandoffPartiesFor3Days([]);
     }
   };
+
+  // ── FIX: Filtriamo le feste solo per la data corrente della festa in modifica
+  const sameDayParties = allParties.filter((p) => p.data === party.data);
 
   const responsabiliList = users;
   const animatoriList    = users;
@@ -428,17 +432,27 @@ export function PartyFormModal({
 
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Stato</label>
-            <select
-              value={party.stato}
-              onChange={(e) => onPartyChange({ ...party, stato: e.target.value })}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="iniziale">Iniziale</option>
-              <option value="caricato_scaffale">Caricato sullo Scaffale</option>
-              <option value="caricato_furgone">Caricato nel Furgone</option>
-              <option value="scaricato_furgone">Scaricato dal Furgone</option>
-              <option value="scaricato_scaffale">Scaricato dallo Scaffale (completato)</option>
-            </select>
+            {currentUserRole === "amministratore" ? (
+              <select
+                value={party.stato}
+                onChange={(e) => onPartyChange({ ...party, stato: e.target.value })}
+                className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="iniziale">Iniziale</option>
+                <option value="caricato_scaffale">Caricato sullo Scaffale</option>
+                <option value="caricato_furgone">Caricato nel Furgone</option>
+                <option value="scaricato_furgone">Scaricato dal Furgone</option>
+                <option value="scaricato_scaffale">Scaricato dallo Scaffale (completato)</option>
+              </select>
+            ) : (
+              <div className="w-full px-3 py-2 border border-input rounded-lg bg-surface/50 text-muted-foreground cursor-not-allowed">
+                {party.stato === "iniziale" ? "Iniziale" : 
+                 party.stato === "caricato_scaffale" ? "Caricato sullo Scaffale" :
+                 party.stato === "caricato_furgone" ? "Caricato nel Furgone" :
+                 party.stato === "scaricato_furgone" ? "Scaricato dal Furgone" :
+                 "Scaricato dallo Scaffale (completato)"}
+              </div>
+            )}
           </div>
 
           <div>
@@ -686,19 +700,58 @@ export function PartyFormModal({
             </AnimatePresence>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Scaffali</label>
-            <ShelfSelector
-              allParties={allParties}
-              currentPartyId={party.id}
-              currentPartyDate={party.data}
-              selectedShelves={party.shelves}
-              onAddShelf={onAddShelf}
-              onRemoveShelf={onRemoveShelf}
-            />
+          <div className="space-y-4 pt-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Scaffali Fisici</label>
+              <ShelfSelector
+                allParties={sameDayParties}
+                currentPartyId={party.id}
+                currentPartyDate={party.data}
+                selectedShelves={party.shelves}
+                onAddShelf={onAddShelf}
+                onRemoveShelf={onRemoveShelf}
+              />
+            </div>
+
+            <div className="p-4 border border-violet-100 bg-violet-50/30 rounded-xl">
+              <label className="block text-sm font-medium text-violet-900 mb-3 flex items-center gap-2">
+                <ArrowRightLeft className="w-4 h-4" /> Scaffali Virtuali (Passaggio Materiale)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: 12 }, (_, i) => `V${i + 1}`).map((vs) => {
+                  const isSelected = party.shelves.includes(vs);
+                  const isUsedByOther = sameDayParties.some(p => 
+                    p.id !== party.id && 
+                    p.shelves && 
+                    p.shelves.split(",").map(s => s.trim()).includes(vs) && 
+                    p.stato !== "scaricato_scaffale"
+                  );
+
+                  if (isUsedByOther && !isSelected) return null;
+
+                  return (
+                    <button
+                      key={vs}
+                      type="button"
+                      onClick={() => isSelected ? onRemoveShelf(vs) : onAddShelf(vs)}
+                      className={`w-12 h-10 rounded-lg flex items-center justify-center text-sm font-bold transition-all border ${
+                        isSelected 
+                          ? "bg-violet-500 text-white border-violet-500 shadow-md" 
+                          : "bg-white text-violet-700 border-violet-200 hover:bg-violet-100 hover:border-violet-300"
+                      }`}
+                    >
+                      {vs}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-violet-600/80 mt-3">
+                Usa questi scaffali (es. V1) per permettere il check di materiale in transito tra due feste. Assegna lo stesso scaffale virtuale ad entrambe le feste coinvolte nell'handoff.
+              </p>
+            </div>
           </div>
 
-          <div className="flex space-x-3 pt-4">
+          <div className="flex space-x-3 pt-6 border-t border-border">
             <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-surface transition-colors">
               Annulla
             </button>
