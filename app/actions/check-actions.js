@@ -223,9 +223,9 @@ export async function getPartyDataForShelf(shelfId) {
   try {
     const supabase = await createClient();
 
-    // ── LOGICA SCAFFALE VIRTUALE (Handoff) ──
+    // Identifichiamo se è virtuale, ma NON rimuoviamo la "V".
     const isVirtual = typeof shelfId === 'string' && shelfId.toUpperCase().startsWith("V");
-    const baseShelf = isVirtual ? shelfId.substring(1) : shelfId;
+    const searchShelf = String(shelfId).toLowerCase().trim();
 
     const { data: parties, error: partyError } = await supabase
       .from("parties")
@@ -238,12 +238,13 @@ export async function getPartyDataForShelf(shelfId) {
 
     if (partyError) throw partyError;
 
+    // Strict match esatto sull'ID dello scaffale
     const matchingParties = (parties || []).filter((p) => {
       const shelfList = (p.shelves || "")
         .split(",")
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
-      return shelfList.includes(baseShelf.toLowerCase());
+      return shelfList.includes(searchShelf);
     });
 
     if (matchingParties.length === 0) {

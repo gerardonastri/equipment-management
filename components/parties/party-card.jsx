@@ -17,6 +17,7 @@ import {
   Building2,
   Tag,
   FileText,
+  Clock
 } from "lucide-react";
 import Link from "next/link";
 
@@ -185,10 +186,16 @@ export function PartyCard({
             {/* Info griglia (Rimappata a 4 colonne per ottimizzare lo spazio con tutti i ruoli) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
               <div className="flex items-center space-x-2">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Data:</span>
-                <span className="font-medium text-foreground">
+                <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className="text-muted-foreground shrink-0">Data:</span>
+                <span className="font-medium text-foreground flex items-center flex-wrap gap-2">
                   {new Date(party.data + "T00:00:00").toLocaleDateString("it-IT")}
+                  {(party.orario_inizio || party.ora_inizio) && (
+                    <span className="flex items-center gap-1 text-xs bg-surface px-1.5 py-0.5 rounded border border-border text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                      {party.orario_inizio || party.ora_inizio}
+                    </span>
+                  )}
                 </span>
               </div>
               

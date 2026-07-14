@@ -1008,7 +1008,7 @@ export default function CheckPage({ params }) {
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <h1 className="text-2xl font-bold text-foreground">
-                  {isVirtualShelf ? "Scaffale Virtuale (Handoff)" : "Scaffale"} {isVirtualShelf ? shelfId.substring(1) : shelfId}
+                 {isVirtualShelf ? "Scaffale Virtuale" : "Scaffale"} {shelfId.toUpperCase()}
                 </h1>
                 <button
                   onClick={handleDownloadList}
@@ -1034,7 +1034,7 @@ export default function CheckPage({ params }) {
                     {allPartyShelves.map((s) => (
                       <span key={s}
                         className={`text-sm font-bold px-3 py-1 rounded-full border ${
-                          s === (isVirtualShelf ? shelfId.substring(1) : shelfId)
+                         s.toLowerCase() === shelfId.toLowerCase()
                             ? "bg-primary/10 text-primary border-primary/30"
                             : "bg-surface text-muted-foreground border-border"
                         }`}>
