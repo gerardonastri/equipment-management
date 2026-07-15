@@ -113,8 +113,7 @@ export function MaterialModal({
     setAssigningId(itemId);
     try {
       await assignSingleItem(party.id, itemId);
-      onRefresh?.();
-      // Ricarica anche la lista speciale per aggiornare lo stato
+      if (onRefresh) await onRefresh(); // Attendi che il componente genitore finisca
       await loadSpecialItems();
     } catch (err) {
       console.error("[v0] Error assigning single item:", err);
@@ -124,14 +123,15 @@ export function MaterialModal({
     }
   };
 
-  const handleRemoveSingle = async (itemId) => {
+ const handleRemoveSingle = async (itemId) => {
     if (!party?.id) return;
     setRemovingId(itemId);
     try {
       await removeSingleItem(party.id, itemId);
-      onRefresh?.();
+      if (onRefresh) await onRefresh();
+      await loadSpecialItems(); // Ricarica la lista per mostrare di nuovo l'elemento tra i disponibili
     } catch (err) {
-      console.error("[v0] Error removing single item:", err);
+      console.error(" Error removing single item:", err);
       alert("Errore nella rimozione dell'elemento");
     } finally {
       setRemovingId(null);

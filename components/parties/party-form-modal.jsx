@@ -21,7 +21,10 @@ import {
   UserCheck,
   Search,
 } from "lucide-react";
-import { syncAnimatoriForParty } from "@/app/admin/parties/actions";
+import {
+  syncAnimatoriForParty,
+  getAvailableItemsForSpecialParty,
+} from "@/app/admin/parties/actions";
 
 export function PartyFormModal({
   isOpen,
@@ -52,7 +55,11 @@ export function PartyFormModal({
   const [isSyncingAnimatori, setIsSyncingAnimatori] = useState(false);
   const [syncInfo, setSyncInfo] = useState(null);
   const [handoffPartiesFor3Days, setHandoffPartiesFor3Days] = useState([]);
+
   const [materialSearch, setMaterialSearch] = useState("");
+  const [specialSearchQuery, setSpecialSearchQuery] = useState("");
+  const [localSpecialItems, setLocalSpecialItems] = useState([]);
+  const [isLoadingSpecial, setIsLoadingSpecial] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -63,10 +70,22 @@ export function PartyFormModal({
       setSyncInfo(null);
       setHandoffPartiesFor3Days([]);
       setMaterialSearch("");
+      setSpecialSearchQuery("");
+      setLocalSpecialItems([]);
     } else if (party?.data) {
       loadHandoffPartiesFor3Days(party.data);
     }
   }, [isOpen, party?.data]);
+
+  useEffect(() => {
+    if (isSpecial && localSpecialItems.length === 0) {
+      setIsLoadingSpecial(true);
+      getAvailableItemsForSpecialParty(party?.id || "__new__")
+        .then((items) => setLocalSpecialItems(items || []))
+        .catch((err) => console.error("Error fetching special items:", err))
+        .finally(() => setIsLoadingSpecial(false));
+    }
+  }, [isSpecial, party?.id]);
 
   if (!isOpen) return null;
 
@@ -118,7 +137,6 @@ export function PartyFormModal({
     }
   };
 
-  // ── FIX: Filtriamo le feste solo per la data corrente della festa in modifica
   const sameDayParties = allParties.filter((p) => p.data === party.data);
 
   const responsabiliList = users;
@@ -225,6 +243,42 @@ export function PartyFormModal({
     macro.name.toLowerCase().includes(materialSearch.toLowerCase()),
   );
 
+  const normalize = (s) =>
+    (s || "")
+      .toString()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+  const availableSpecialHierarchy = localSpecialItems.filter(
+    (m) => !selectedMaterials.includes(m.id),
+  );
+
+  const filteredSpecialItems = availableSpecialHierarchy
+    .map((macro) => {
+      const q = normalize(specialSearchQuery);
+      if (!q) return macro;
+
+      const macroMatches = normalize(macro.name).includes(q);
+      if (macroMatches) return macro;
+
+      const filteredCategories = macro.categories
+        .map((cat) => {
+          const catMatches = normalize(cat.name).includes(q);
+          const matchingItems = cat.items.filter((sub) =>
+            normalize(sub.name).includes(q),
+          );
+          if (catMatches) return cat;
+          if (matchingItems.length > 0) return { ...cat, items: matchingItems };
+          return null;
+        })
+        .filter(Boolean);
+
+      if (filteredCategories.length === 0) return null;
+      return { ...macro, categories: filteredCategories };
+    })
+    .filter(Boolean);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -243,21 +297,29 @@ export function PartyFormModal({
         <form onSubmit={handleSubmitWithAlert} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Nome Festa</label>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Nome Festa
+              </label>
               <input
                 type="text"
                 value={party.nome}
-                onChange={(e) => onPartyChange({ ...party, nome: e.target.value })}
+                onChange={(e) =>
+                  onPartyChange({ ...party, nome: e.target.value })
+                }
                 className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Data</label>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Data
+              </label>
               <input
                 type="date"
                 value={party.data}
-                onChange={(e) => onPartyChange({ ...party, data: e.target.value })}
+                onChange={(e) =>
+                  onPartyChange({ ...party, data: e.target.value })
+                }
                 className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               />
@@ -269,11 +331,13 @@ export function PartyFormModal({
               <input
                 type="time"
                 value={party.orario_inizio || party.ora_inizio || ""}
-                onChange={(e) => onPartyChange({ 
-                  ...party, 
-                  orario_inizio: e.target.value,
-                  ora_inizio: e.target.value // Manteniamo la retrocompatibilità col DB
-                })}
+                onChange={(e) =>
+                  onPartyChange({
+                    ...party,
+                    orario_inizio: e.target.value,
+                    ora_inizio: e.target.value,
+                  })
+                }
                 className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -306,7 +370,6 @@ export function PartyFormModal({
                 )}
               </span>
             </label>
-
             {selectedResponsabili.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {selectedResponsabili.map((u) => (
@@ -326,7 +389,6 @@ export function PartyFormModal({
                 ))}
               </div>
             )}
-
             <div className="flex gap-2">
               <select
                 value=""
@@ -336,11 +398,7 @@ export function PartyFormModal({
                     e.target.value = "";
                   }
                 }}
-                className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 text-sm ${
-                  showStaffAlert && missingResponsabile
-                    ? "border-amber-400 bg-amber-50"
-                    : "border-indigo-200 bg-white"
-                }`}
+                className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 text-sm ${showStaffAlert && missingResponsabile ? "border-amber-400 bg-amber-50" : "border-indigo-200 bg-white"}`}
               >
                 <option value="">
                   {availableResponsabili.length === 0
@@ -364,7 +422,6 @@ export function PartyFormModal({
                 <Users className="w-4 h-4 text-primary" /> Animatori
               </span>
             </label>
-
             {selectedAnimatori.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {selectedAnimatori.map((u) => (
@@ -384,7 +441,6 @@ export function PartyFormModal({
                 ))}
               </div>
             )}
-
             <select
               value=""
               onChange={(e) => {
@@ -408,7 +464,6 @@ export function PartyFormModal({
                 </option>
               ))}
             </select>
-
             {party.id && party.external_id && (
               <div className="mt-2">
                 <button
@@ -475,7 +530,6 @@ export function PartyFormModal({
                 <Car className="w-4 h-4 text-slate-500" /> Driver (Autisti)
               </span>
             </label>
-
             {selectedDrivers.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {selectedDrivers.map((u) => (
@@ -495,7 +549,6 @@ export function PartyFormModal({
                 ))}
               </div>
             )}
-
             <select
               value=""
               onChange={(e) => {
@@ -535,11 +588,7 @@ export function PartyFormModal({
               onChange={(e) =>
                 onPartyChange({ ...party, magazziniere_id: e.target.value })
               }
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring ${
-                showStaffAlert && missingMagazziniere
-                  ? "border-amber-400 bg-amber-50"
-                  : "border-input"
-              }`}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring ${showStaffAlert && missingMagazziniere ? "border-amber-400 bg-amber-50" : "border-input"}`}
             >
               <option value="">Seleziona magazziniere...</option>
               {magazzinieriList.map((u) => (
@@ -570,7 +619,7 @@ export function PartyFormModal({
                         {missingResponsabile && (
                           <li>
                             • Nessun <strong>responsabile</strong> assegnato
-                            (necessario per firmare i check e il passaggio)
+                            (necessario per firmare i check)
                           </li>
                         )}
                         {missingMagazziniere && (
@@ -672,20 +721,15 @@ export function PartyFormModal({
               <button
                 type="button"
                 onClick={() => setIsSpecial((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                  isSpecial
-                    ? "bg-amber-500 text-white border-amber-500"
-                    : "bg-surface border-border text-muted-foreground hover:border-amber-300 hover:text-amber-600"
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${isSpecial ? "bg-amber-500 text-white border-amber-500" : "bg-surface border-border text-muted-foreground hover:border-amber-300 hover:text-amber-600"}`}
               >
                 <Star
                   className={`w-3.5 h-3.5 ${isSpecial ? "fill-white" : ""}`}
-                />
+                />{" "}
                 Festa Speciale
               </button>
             </div>
 
-            {/* BARRA DI RICERCA */}
             <div className="relative mb-2.5">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
@@ -755,7 +799,7 @@ export function PartyFormModal({
                   exit={{ opacity: 0, height: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="border border-amber-200 rounded-xl bg-amber-50/50 p-4">
+                  <div className="border border-amber-200 rounded-xl bg-amber-50/50 p-4 mt-2 mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
                       <span className="text-sm font-semibold text-amber-800">
@@ -765,155 +809,192 @@ export function PartyFormModal({
                         da macro non assegnate
                       </span>
                     </div>
-                    {!specialItemHierarchy?.length ? (
+
+                    {!availableSpecialHierarchy.length ? (
                       <div className="text-center py-6 text-amber-700/60">
-                        <AlertCircle className="w-6 h-6 mx-auto mb-1 opacity-50" />
-                        <p className="text-xs">
-                          Seleziona prima le macro — gli elementi disponibili
-                          sono quelli delle macro rimanenti.
-                        </p>
+                        {isLoadingSpecial ? (
+                          <>
+                            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-1 text-amber-500" />
+                            <p className="text-xs">
+                              Caricamento materiale speciale in corso...
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-6 h-6 mx-auto mb-1 opacity-50" />
+                            <p className="text-xs">
+                              Seleziona prima le macro — gli elementi
+                              disponibili sono quelli delle macro rimanenti.
+                            </p>
+                          </>
+                        )}
                       </div>
                     ) : (
-                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                        {specialItemHierarchy.map((macro) => (
-                          <div
-                            key={macro.id}
-                            className="bg-card rounded-lg border border-amber-200 overflow-hidden"
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedMacro((p) => ({
-                                  ...p,
-                                  [macro.id]: !p[macro.id],
-                                }))
-                              }
-                              className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-amber-50 transition-colors"
-                            >
-                              <div className="flex items-center gap-2">
-                                <Package className="w-3.5 h-3.5 text-amber-600" />
-                                <span className="text-sm font-medium text-foreground">
-                                  {macro.name}
-                                </span>
-                              </div>
-                              {expandedMacro[macro.id] ? (
-                                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                              )}
-                            </button>
-                            <AnimatePresence>
-                              {expandedMacro[macro.id] && (
-                                <motion.div
-                                  initial={{ height: 0 }}
-                                  animate={{ height: "auto" }}
-                                  exit={{ height: 0 }}
-                                  className="overflow-hidden border-t border-amber-100 px-3 py-2"
-                                >
-                                  {macro.categories.map((cat) => (
-                                    <div key={cat.id} className="mb-1">
-                                      <div className="flex items-center gap-2 py-1">
-                                        {cat.items.length > 0 && (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setExpandedCat((p) => ({
-                                                ...p,
-                                                [cat.id]: !p[cat.id],
-                                              }))
-                                            }
-                                            className="text-muted-foreground hover:text-foreground shrink-0"
-                                          >
-                                            {expandedCat[cat.id] ? (
-                                              <ChevronDown className="w-3 h-3" />
-                                            ) : (
-                                              <ChevronRight className="w-3 h-3" />
-                                            )}
-                                          </button>
-                                        )}
-                                        <label
-                                          className={`flex items-center gap-2 flex-1 cursor-pointer ${cat.materiale_mancante ? "opacity-50 cursor-not-allowed" : ""}`}
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={
-                                              selectedSingleItems?.includes(
-                                                cat.id,
-                                              ) || false
-                                            }
-                                            onChange={() =>
-                                              !cat.materiale_mancante &&
-                                              onSingleItemToggle?.(cat.id)
-                                            }
-                                            disabled={cat.materiale_mancante}
-                                            className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
-                                          />
-                                          <span className="text-xs font-medium text-foreground">
-                                            {cat.name}
-                                          </span>
-                                          {cat.materiale_mancante && (
-                                            <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">
-                                              mancante
-                                            </span>
-                                          )}
-                                        </label>
-                                      </div>
-                                      <AnimatePresence>
-                                        {expandedCat[cat.id] &&
-                                          cat.items.length > 0 && (
-                                            <motion.div
-                                              initial={{ height: 0 }}
-                                              animate={{ height: "auto" }}
-                                              exit={{ height: 0 }}
-                                              className="overflow-hidden ml-5"
-                                            >
-                                              {cat.items.map((sub) => (
-                                                <label
-                                                  key={sub.id}
-                                                  className={`flex items-center gap-2 py-0.5 cursor-pointer ${sub.materiale_mancante ? "opacity-50 cursor-not-allowed" : ""}`}
-                                                >
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={
-                                                      selectedSingleItems?.includes(
-                                                        sub.id,
-                                                      ) || false
-                                                    }
-                                                    onChange={() =>
-                                                      !sub.materiale_mancante &&
-                                                      onSingleItemToggle?.(
-                                                        sub.id,
-                                                      )
-                                                    }
-                                                    disabled={
-                                                      sub.materiale_mancante
-                                                    }
-                                                    className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
-                                                  />
-                                                  <span className="text-xs text-muted-foreground">
-                                                    {sub.name}
-                                                  </span>
-                                                  {sub.materiale_mancante && (
-                                                    <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">
-                                                      mancante
-                                                    </span>
-                                                  )}
-                                                </label>
-                                              ))}
-                                            </motion.div>
-                                          )}
-                                      </AnimatePresence>
-                                    </div>
-                                  ))}
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
+                      <>
+                        <div className="relative mb-3 mt-2">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500" />
+                          <input
+                            type="text"
+                            placeholder="Cerca singolo elemento o categoria..."
+                            value={specialSearchQuery}
+                            onChange={(e) =>
+                              setSpecialSearchQuery(e.target.value)
+                            }
+                            className="w-full pl-9 pr-3 py-2 border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm bg-white"
+                          />
+                        </div>
+
+                        {filteredSpecialItems.length === 0 ? (
+                          <div className="text-center py-4 text-amber-700/60">
+                            <p className="text-xs">
+                              Nessun elemento corrisponde alla ricerca.
+                            </p>
                           </div>
-                        ))}
-                      </div>
+                        ) : (
+                          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                            {filteredSpecialItems.map((macro) => (
+                              <div
+                                key={macro.id}
+                                className="bg-card rounded-lg border border-amber-200 overflow-hidden"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedMacro((p) => ({
+                                      ...p,
+                                      [macro.id]: !p[macro.id],
+                                    }))
+                                  }
+                                  className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-amber-50 transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Package className="w-3.5 h-3.5 text-amber-600" />
+                                    <span className="text-sm font-medium text-foreground">
+                                      {macro.name}
+                                    </span>
+                                  </div>
+                                  {expandedMacro[macro.id] ? (
+                                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                                  ) : (
+                                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                                  )}
+                                </button>
+                                <AnimatePresence>
+                                  {expandedMacro[macro.id] && (
+                                    <motion.div
+                                      initial={{ height: 0 }}
+                                      animate={{ height: "auto" }}
+                                      exit={{ height: 0 }}
+                                      className="overflow-hidden border-t border-amber-100 px-3 py-2"
+                                    >
+                                      {macro.categories.map((cat) => (
+                                        <div key={cat.id} className="mb-1">
+                                          <div className="flex items-center gap-2 py-1">
+                                            {cat.items.length > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setExpandedCat((p) => ({
+                                                    ...p,
+                                                    [cat.id]: !p[cat.id],
+                                                  }))
+                                                }
+                                                className="text-muted-foreground hover:text-foreground shrink-0"
+                                              >
+                                                {expandedCat[cat.id] ? (
+                                                  <ChevronDown className="w-3 h-3" />
+                                                ) : (
+                                                  <ChevronRight className="w-3 h-3" />
+                                                )}
+                                              </button>
+                                            )}
+                                            <label
+                                              className={`flex items-center gap-2 flex-1 cursor-pointer ${cat.materiale_mancante ? "opacity-50 cursor-not-allowed" : ""}`}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={
+                                                  selectedSingleItems?.includes(
+                                                    cat.id,
+                                                  ) || false
+                                                }
+                                                onChange={() =>
+                                                  !cat.materiale_mancante &&
+                                                  onSingleItemToggle?.(cat.id)
+                                                }
+                                                disabled={
+                                                  cat.materiale_mancante
+                                                }
+                                                className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
+                                              />
+                                              <span className="text-xs font-medium text-foreground">
+                                                {cat.name}
+                                              </span>
+                                              {cat.materiale_mancante && (
+                                                <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">
+                                                  mancante
+                                                </span>
+                                              )}
+                                            </label>
+                                          </div>
+                                          <AnimatePresence>
+                                            {expandedCat[cat.id] &&
+                                              cat.items.length > 0 && (
+                                                <motion.div
+                                                  initial={{ height: 0 }}
+                                                  animate={{ height: "auto" }}
+                                                  exit={{ height: 0 }}
+                                                  className="overflow-hidden ml-5"
+                                                >
+                                                  {cat.items.map((sub) => (
+                                                    <label
+                                                      key={sub.id}
+                                                      className={`flex items-center gap-2 py-0.5 cursor-pointer ${sub.materiale_mancante ? "opacity-50 cursor-not-allowed" : ""}`}
+                                                    >
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={
+                                                          selectedSingleItems?.includes(
+                                                            sub.id,
+                                                          ) || false
+                                                        }
+                                                        onChange={() =>
+                                                          !sub.materiale_mancante &&
+                                                          onSingleItemToggle?.(
+                                                            sub.id,
+                                                          )
+                                                        }
+                                                        disabled={
+                                                          sub.materiale_mancante
+                                                        }
+                                                        className="w-3.5 h-3.5 text-amber-500 border-amber-300 rounded focus:ring-amber-400"
+                                                      />
+                                                      <span className="text-xs text-muted-foreground">
+                                                        {sub.name}
+                                                      </span>
+                                                      {sub.materiale_mancante && (
+                                                        <span className="text-xs bg-orange-100 text-orange-600 px-1 rounded">
+                                                          mancante
+                                                        </span>
+                                                      )}
+                                                    </label>
+                                                  ))}
+                                                </motion.div>
+                                              )}
+                                          </AnimatePresence>
+                                        </div>
+                                      ))}
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                     {(selectedSingleItems?.length || 0) > 0 && (
-                      <p className="text-xs text-amber-700 font-medium mt-2">
+                      <p className="text-xs text-amber-700 font-medium mt-3 px-1 border-t border-amber-200/50 pt-2">
                         {selectedSingleItems.length} element
                         {selectedSingleItems.length === 1 ? "o" : "i"} singol
                         {selectedSingleItems.length === 1 ? "o" : "i"}{" "}
@@ -1043,10 +1124,8 @@ export function PartyFormModal({
                         </div>
                         {handoffMacroIds.length > 0 && (
                           <p className="text-xs text-violet-600 font-medium mt-2">
-                            {handoffMacroIds.length} macro
-                            {handoffMacroIds.length > 1
-                              ? " passano"
-                              : " passa"}{" "}
+                            {handoffMacroIds.length} macro{" "}
+                            {handoffMacroIds.length > 1 ? " passano" : " passa"}{" "}
                             direttamente — scaffale B:{" "}
                             {allParties.find(
                               (p) => p.id === party.handoff_to_party_id,
@@ -1093,7 +1172,6 @@ export function PartyFormModal({
                 {Array.from({ length: 12 }, (_, i) => `V${i + 1}`).map((vs) => {
                   const isSelected = party.shelves.includes(vs);
 
-                  // Calcola quante ALTRE feste stanno usando questo scaffale oggi
                   const otherPartiesUsingIt = sameDayParties.filter(
                     (p) =>
                       p.id !== party.id &&
@@ -1104,10 +1182,7 @@ export function PartyFormModal({
                         .includes(vs) &&
                       p.stato !== "scaricato_scaffale",
                   );
-
                   const usageCount = otherPartiesUsingIt.length;
-
-                  // Se lo usano già 2 feste diverse (accoppiamento completo) e questa festa non lo ha selezionato, lo blocchiamo
                   const isLocked = usageCount >= 2 && !isSelected;
 
                   return (
@@ -1124,7 +1199,7 @@ export function PartyFormModal({
                           : isLocked
                             ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50"
                             : usageCount === 1
-                              ? "bg-violet-50 text-violet-700 border-violet-400 border-dashed hover:bg-violet-100" // In attesa di accoppiamento con la seconda festa
+                              ? "bg-violet-50 text-violet-700 border-violet-400 border-dashed hover:bg-violet-100"
                               : "bg-white text-violet-700 border-violet-200 hover:bg-violet-100 hover:border-violet-300"
                       }`}
                       title={
