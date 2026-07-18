@@ -306,12 +306,14 @@ export async function getPartyDataForShelf(shelfId) {
 
     if (materialError) throw materialError;
 
-    const macroCategories = partyMaterial
-      .filter((item) => item.inventory_items.type === "macro")
-      .map((item) => item.inventory_items);
+    const partyItems = partyMaterial.map((pm) => pm.inventory_items).filter(Boolean);
+    const macroItems = partyItems.filter((item) => item.type === "macro");
+    const singleItems = partyItems.filter((item) => item.type !== "macro");
 
     const materialHierarchy = [];
-    for (const macro of macroCategories) {
+    
+    // 1. Costruisci l'albero per le Macro intere
+    for (const macro of macroItems) {
       const { data: categories } = await supabase
         .from("inventory_items")
         .select("*")
@@ -340,6 +342,82 @@ export async function getPartyDataForShelf(shelfId) {
         });
       }
       materialHierarchy.push(macroData);
+    }
+
+    // 2. Costruisci l'albero per gli elementi singoli (Festa Speciale)
+    for (const item of singleItems) {
+      let catObj = null;
+      let macroObj = null;
+      let subsToLoad = [];
+
+      // Risolvi la gerarchia verso l'alto (Sotto -> Categoria -> Macro)
+      if (item.type === "categoria") {
+        catObj = item;
+        const { data: macro } = await supabase
+          .from("inventory_items")
+          .select("*")
+          .eq("id", item.parent_id)
+          .single();
+        macroObj = macro;
+
+        // Recupera i sotto-elementi, altrimenti lo scanner NFC non li troverà
+        const { data: subs } = await supabase
+          .from("inventory_items")
+          .select("*")
+          .eq("parent_id", item.id)
+          .eq("type", "sotto");
+        subsToLoad = subs || [];
+      } else if (item.type === "sotto") {
+        const { data: cat } = await supabase
+          .from("inventory_items")
+          .select("*")
+          .eq("id", item.parent_id)
+          .single();
+        catObj = cat;
+
+        if (catObj) {
+          const { data: macro } = await supabase
+            .from("inventory_items")
+            .select("*")
+            .eq("id", catObj.parent_id)
+            .single();
+          macroObj = macro;
+        }
+        subsToLoad = [item];
+      }
+
+      if (!macroObj || !catObj) continue;
+
+      // Inietta la Macro (Extra) se non esiste
+      let existingMacro = materialHierarchy.find((m) => m.id === macroObj.id);
+      if (!existingMacro) {
+        existingMacro = {
+          id: macroObj.id,
+          name: `${macroObj.name} (Extra)`,
+          materiale_mancante: macroObj.materiale_mancante,
+          categories: [],
+        };
+        materialHierarchy.push(existingMacro);
+      }
+
+      // Inietta la Categoria se non esiste
+      let existingCat = existingMacro.categories.find((c) => c.id === catObj.id);
+      if (!existingCat) {
+        existingCat = {
+          id: catObj.id,
+          name: catObj.name,
+          materiale_mancante: catObj.materiale_mancante,
+          items: [],
+        };
+        existingMacro.categories.push(existingCat);
+      }
+
+      // Aggiungi i sotto-elementi mancanti
+      for (const sub of subsToLoad) {
+        if (!existingCat.items.find((s) => s.id === sub.id)) {
+          existingCat.items.push(sub);
+        }
+      }
     }
 
     const { data: existingLosses } = await supabase
