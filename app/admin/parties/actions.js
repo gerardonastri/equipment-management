@@ -587,6 +587,7 @@ export async function createParty(formData) {
     stato:              formData.stato,
     note:               formData.note,
     shelves:            formData.shelves.join(","),
+    is_special: formData.is_special || false,
   };
 
   const { data, error } = await supabase.from("parties").insert([partyData]).select();

@@ -17,7 +17,8 @@ import {
   Building2,
   Tag,
   FileText,
-  Clock
+  Clock,
+  Star
 } from "lucide-react";
 import Link from "next/link";
 
@@ -127,6 +128,12 @@ export function PartyCard({
             {/* Nome + stato + badge */}
             <div className="flex items-center flex-wrap gap-2 mb-3">
               <h3 className="text-xl font-semibold text-foreground">{party.nome}</h3>
+              {party.is_special && (
+                <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300 shadow-sm">
+                  <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                  Speciale
+                </span>
+              )}
               <span className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 ${getStatusColor(party.stato)}`}>
                 {getStatusIcon(party.stato)}
                 <span>{getStatusText(party.stato)}</span>

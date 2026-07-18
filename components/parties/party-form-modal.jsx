@@ -74,8 +74,12 @@ export function PartyFormModal({
       setLocalSpecialItems([]);
     } else if (party?.data) {
       loadHandoffPartiesFor3Days(party.data);
+      // Pre-carica lo stato speciale
+      if (party.is_special || (selectedSingleItems && selectedSingleItems.length > 0)) {
+        setIsSpecial(true);
+      }
     }
-  }, [isOpen, party?.data]);
+  }, [isOpen, party?.data, party?.is_special, selectedSingleItems]);
 
   useEffect(() => {
     if (isSpecial && localSpecialItems.length === 0) {
@@ -226,8 +230,8 @@ export function PartyFormModal({
   );
 
   const handleSubmitWithAlert = (e) => {
+    e.preventDefault();
     if (missingResponsabile || missingMagazziniere) {
-      e.preventDefault();
       setShowStaffAlert(true);
       setTimeout(() => {
         document
@@ -236,7 +240,13 @@ export function PartyFormModal({
       }, 50);
       return;
     }
-    onSubmit(e);
+    
+    // Inietta is_special nell'oggetto party prima di chiamare il parent
+    const partyDataToSubmit = { ...party, is_special: isSpecial };
+    onPartyChange(partyDataToSubmit); // Aggiorna lo stato nel parent
+    
+    // Usiamo setTimeout per dare il tempo allo stato del parent di aggiornarsi
+    setTimeout(() => onSubmit(e), 0);
   };
 
   const filteredMacros = macroCategories.filter((macro) =>
