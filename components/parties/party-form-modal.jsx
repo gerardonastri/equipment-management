@@ -75,7 +75,10 @@ export function PartyFormModal({
     } else if (party?.data) {
       loadHandoffPartiesFor3Days(party.data);
       // Pre-carica lo stato speciale
-      if (party.is_special || (selectedSingleItems && selectedSingleItems.length > 0)) {
+      if (
+        party.is_special ||
+        (selectedSingleItems && selectedSingleItems.length > 0)
+      ) {
         setIsSpecial(true);
       }
     }
@@ -240,11 +243,11 @@ export function PartyFormModal({
       }, 50);
       return;
     }
-    
+
     // Inietta is_special nell'oggetto party prima di chiamare il parent
     const partyDataToSubmit = { ...party, is_special: isSpecial };
     onPartyChange(partyDataToSubmit); // Aggiorna lo stato nel parent
-    
+
     // Usiamo setTimeout per dare il tempo allo stato del parent di aggiornarsi
     setTimeout(() => onSubmit(e), 0);
   };
@@ -1090,11 +1093,43 @@ export function PartyFormModal({
                           <option value="">
                             Seleziona la festa che riceve il materiale...
                           </option>
-                          {handoffCandidates.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.nome} — {p.luogo}
-                            </option>
-                          ))}
+                          {handoffCandidates.map((p) => {
+                            // 1. Formattazione data (es: "dom 12/05") utile per colpo d'occhio rapido
+                            const dateObj = new Date(p.data + "T00:00:00");
+                            const dataFesta = dateObj.toLocaleDateString(
+                              "it-IT",
+                              {
+                                weekday: "short",
+                                day: "2-digit",
+                                month: "2-digit",
+                              },
+                            );
+
+                            // 2. Risoluzione riferimento: prima prova il Cliente, poi fa fallback sullo staff
+                            let riferimento = p.cliente;
+
+                            if (!riferimento && users) {
+                              const staffId =
+                                p.responsabili_ids?.[0] ||
+                                p.animatori_ids?.[0] ||
+                                p.animatore_id;
+                              const assignedUser = users.find(
+                                (u) => u.id === staffId,
+                              );
+                              if (assignedUser) riferimento = assignedUser.nome;
+                            }
+
+                            const rifText = riferimento
+                              ? ` | Rif: ${riferimento}`
+                              : "";
+
+                            return (
+                              <option key={p.id} value={p.id}>
+                                {dataFesta.toUpperCase()} - {p.nome} ({p.luogo})
+                                {rifText}
+                              </option>
+                            );
+                          })}
                         </select>
                       )}
                     </div>
