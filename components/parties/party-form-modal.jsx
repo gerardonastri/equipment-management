@@ -54,7 +54,7 @@ export function PartyFormModal({
   const [showStaffAlert, setShowStaffAlert] = useState(false);
   const [isSyncingAnimatori, setIsSyncingAnimatori] = useState(false);
   const [syncInfo, setSyncInfo] = useState(null);
-  const [handoffPartiesFor3Days, setHandoffPartiesFor3Days] = useState([]);
+  const [handoffPartiesFor7Days, setHandoffPartiesFor7Days] = useState([]);
 
   const [materialSearch, setMaterialSearch] = useState("");
   const [specialSearchQuery, setSpecialSearchQuery] = useState("");
@@ -68,12 +68,12 @@ export function PartyFormModal({
       setExpandedCat({});
       setShowStaffAlert(false);
       setSyncInfo(null);
-      setHandoffPartiesFor3Days([]);
+      setHandoffPartiesFor7Days([]);
       setMaterialSearch("");
       setSpecialSearchQuery("");
       setLocalSpecialItems([]);
     } else if (party?.data) {
-      loadHandoffPartiesFor3Days(party.data);
+      loadhandoffPartiesFor7Days(party.data);
       // Pre-carica lo stato speciale
       if (
         party.is_special ||
@@ -117,30 +117,25 @@ export function PartyFormModal({
     }
   };
 
-  const loadHandoffPartiesFor3Days = (baseDate) => {
+  const loadHandoffPartiesFor7Days = (baseDate) => {
     try {
       const dateObj = new Date(baseDate + "T00:00:00");
-      const dates = [
-        baseDate,
-        new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0],
-        new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0],
-      ];
+      const dates = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(dateObj.getTime() + i * 24 * 60 * 60 * 1000);
+        return d.toISOString().split("T")[0];
+      });
 
-      const partiesFor3Days = allParties.filter(
+      const partiesFor7Days = allParties.filter(
         (p) =>
           dates.includes(p.data) &&
           p.id !== party.id &&
           p.stato !== "scaricato_scaffale",
       );
 
-      setHandoffPartiesFor3Days(partiesFor3Days);
+      setHandoffPartiesFor7Days(partiesFor7Days);
     } catch (err) {
-      console.error("Error loading handoff parties for 3 days:", err);
-      setHandoffPartiesFor3Days([]);
+      console.error("Error loading handoff parties for 7 days:", err);
+      setHandoffPartiesFor7Days([]);
     }
   };
 
@@ -219,7 +214,7 @@ export function PartyFormModal({
   const handoffMacroIds = Array.isArray(party.handoff_macro_ids)
     ? party.handoff_macro_ids
     : [];
-  const handoffCandidates = handoffPartiesFor3Days;
+  const handoffCandidates = handoffPartiesFor7Days;
 
   const toggleHandoffMacro = (macroId) => {
     const next = handoffMacroIds.includes(macroId)

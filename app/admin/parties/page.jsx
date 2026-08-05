@@ -144,7 +144,6 @@ export default function PartiesPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyParty, setHistoryParty] = useState(null);
   const [partyAlerts, setPartyAlerts] = useState({});
-  const [partiesFor3Days, setPartiesFor3Days] = useState([]);
 
   // ── LOGICA MODIFICATA: Recupero ruolo utente ──
   const [currentUserRole, setCurrentUserRole] = useState(null);
@@ -187,30 +186,32 @@ export default function PartiesPage() {
   // assegna/rimuovi materiale) e non solo quando cambia il filtro data della pagina.
   // Prima questo non succedeva: dopo aver occupato uno scaffale, riaprendo il form
   // per un'altra festa nello stesso giorno lo scaffale risultava ancora "libero"
-  // perché partiesFor3Days non veniva mai ricaricato.
-  const loadPartiesFor3Days = useCallback(async (baseDate) => {
-    if (!baseDate) return;
-    try {
-      const dateObj = new Date(baseDate + "T00:00:00");
-      const dates = [
-        baseDate,
-        new Date(dateObj.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        new Date(dateObj.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-      ];
+  // perché partiesFor7Days non veniva mai ricaricato.
+  const [partiesFor7Days, setPartiesFor7Days] = useState([]);
+  const loadPartiesFor7Days = useCallback(async (baseDate) => {
+  if (!baseDate) return;
+  try {
+    const dateObj = new Date(baseDate + "T00:00:00");
+    
+    // Genera un array di 7 date (da oggi a +6 giorni)
+    const dates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(dateObj.getTime() + i * 24 * 60 * 60 * 1000);
+      return d.toISOString().split("T")[0];
+    });
 
-      const allPartiesFor3Days = await Promise.all(dates.map((d) => getPartiesByDate(d)));
-      const combined = allPartiesFor3Days.flat();
-      setPartiesFor3Days(combined);
-    } catch (err) {
-      console.error("[v0] Errore caricamento feste 3 giorni:", err);
-      setPartiesFor3Days([]);
-    }
-  }, []);
+    const allPartiesFor7Days = await Promise.all(dates.map((d) => getPartiesByDate(d)));
+    const combined = allPartiesFor7Days.flat();
+    setPartiesFor7Days(combined);
+  } catch (err) {
+    console.error("[v0] Errore caricamento feste 7 giorni:", err);
+    setPartiesFor7Days([]);
+  }
+}, []);
 
   useEffect(() => {
     if (!selectedDate) return;
-    loadPartiesFor3Days(selectedDate);
-  }, [selectedDate, loadPartiesFor3Days]);
+    loadPartiesFor7Days(selectedDate);
+  }, [selectedDate, loadPartiesFor7Days]);
   
   const rawParties = syncedParties ?? [];
   const parties = mapHandoffRelations(rawParties);
@@ -338,7 +339,7 @@ export default function PartiesPage() {
       setSelectedSingleItems([]);
       toast("Festa creata con successo!", "success");
       runSyncForDate(selectedDate);
-      loadPartiesFor3Days(selectedDate);
+      loadPartiesFor7Days(selectedDate);
     } catch (err) {
       console.error("Error creating party:", err);
       toast("Errore nella creazione della festa", "error");
@@ -363,7 +364,7 @@ export default function PartiesPage() {
     ]);
     setUsedMacroIds(usedIds);
     setSelectedMaterials(assignedMacroIds);
-    loadPartiesFor3Days(party.data); // scaffali sempre aggiornati per la data della festa in modifica
+    loadPartiesFor7Days(party.data); // scaffali sempre aggiornati per la data della festa in modifica
     setShowFormModal(true);
   };
 
@@ -379,7 +380,7 @@ export default function PartiesPage() {
       setSelectedSingleItems([]);
       toast("Festa aggiornata con successo!", "success");
       runSyncForDate(selectedDate);
-      loadPartiesFor3Days(selectedDate);
+      loadPartiesFor7Days(selectedDate);
     } catch (err) {
       console.error("Error updating party:", err);
       toast("Errore nell'aggiornamento della festa", "error");
@@ -414,12 +415,12 @@ export default function PartiesPage() {
       await cacheManager.deletePartyFromCache(partyId);
       toast("Festa eliminata", "success");
       runSyncForDate(selectedDate);
-      loadPartiesFor3Days(selectedDate);
+      loadPartiesFor7Days(selectedDate);
     } catch (err) {
       console.error("Error deleting party:", err);
       toast("Errore nell'eliminazione della festa", "error");
       runSyncForDate(selectedDate);
-      loadPartiesFor3Days(selectedDate);
+      loadPartiesFor7Days(selectedDate);
     }
   };
 
@@ -471,7 +472,7 @@ export default function PartiesPage() {
                 setNewParty({ nome: "", data: selectedDate, luogo: "", animatore_id: "", magazziniere_id: "", animatori_ids: [], responsabili_ids: [], drivers_ids: [], stato: "iniziale", note: "", shelves: [], handoff_to_party_id: null, handoff_macro_ids: [] });
                 setSelectedMaterials([]);
                 setSelectedSingleItems([]);
-                loadPartiesFor3Days(selectedDate); // scaffali sempre aggiornati all'apertura del form
+                loadPartiesFor7Days(selectedDate); // scaffali sempre aggiornati all'apertura del form
                 setShowFormModal(true);
               }}
               className="btn-primary flex items-center space-x-2 whitespace-nowrap"
@@ -584,7 +585,7 @@ export default function PartiesPage() {
                   setIsLoadingMacros(false);
                 });
                 // Ricarica anche gli scaffali occupati per la nuova data selezionata nel form
-                loadPartiesFor3Days(p.data);
+                loadPartiesFor7Days(p.data);
               }
             }}
             users={users}
@@ -602,7 +603,7 @@ export default function PartiesPage() {
             isSubmitting={isSubmitting}
             onSubmit={editParty ? handleUpdateParty : handleAddParty}
             onCancel={() => { setShowFormModal(false); setEditParty(null); setSelectedMaterials([]); setSelectedSingleItems([]); }}
-            allParties={partiesFor3Days}
+            allParties={partiesFor7Days}
             usedMacroIds={usedMacroIds}
             isLoadingMacros={isLoadingMacros}
             specialItemHierarchy={specialItemHierarchy}
