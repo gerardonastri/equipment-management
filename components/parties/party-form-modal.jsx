@@ -117,7 +117,7 @@ export function PartyFormModal({
     }
   };
 
-  const loadHandoffPartiesFor7Days = (baseDate) => {
+  const loadhandoffPartiesFor7Days = (baseDate) => {
     try {
       const dateObj = new Date(baseDate + "T00:00:00");
       const dates = Array.from({ length: 7 }, (_, i) => {
