@@ -46,14 +46,32 @@ const fetcher = async (shelfId) => {
 const FASI_CATEGORIA_CONSENTITA = ["scaffale_furgone", "furgone_scaffale"];
 
 const LOSS_TYPES = [
-  { id: "mancante",   label: "Mancante",   color: "bg-orange-100 text-orange-700 border-orange-200" },
-  { id: "danneggiato",label: "Danneggiato",color: "bg-red-100 text-red-700 border-red-200" },
-  { id: "rubato",     label: "Rubato",     color: "bg-purple-100 text-purple-700 border-purple-200" },
+  {
+    id: "mancante",
+    label: "Mancante",
+    color: "bg-orange-100 text-orange-700 border-orange-200",
+  },
+  {
+    id: "danneggiato",
+    label: "Danneggiato",
+    color: "bg-red-100 text-red-700 border-red-200",
+  },
+  {
+    id: "rubato",
+    label: "Rubato",
+    color: "bg-purple-100 text-purple-700 border-purple-200",
+  },
 ];
 
 const DAMAGE_TYPE_CONFIG = {
-  danneggiato: { label: "Danneggiato", badge: "bg-red-100 text-red-700 border-red-200" },
-  rubato:      { label: "Rubato",      badge: "bg-purple-100 text-purple-700 border-purple-200" },
+  danneggiato: {
+    label: "Danneggiato",
+    badge: "bg-red-100 text-red-700 border-red-200",
+  },
+  rubato: {
+    label: "Rubato",
+    badge: "bg-purple-100 text-purple-700 border-purple-200",
+  },
 };
 
 function DamageModal({ item, partyId, userId, onClose, onConfirmed }) {
@@ -74,7 +92,7 @@ function DamageModal({ item, partyId, userId, onClose, onConfirmed }) {
         userId,
         tipo,
         valoreStimato ? Number(valoreStimato) : null,
-        note || null
+        note || null,
       );
       if (result.error) {
         setError(result.error);
@@ -134,8 +152,16 @@ function DamageModal({ item, partyId, userId, onClose, onConfirmed }) {
             </p>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: "danneggiato", label: "Danneggiato", active: "bg-red-500 text-white border-red-500" },
-                { id: "rubato",      label: "Rubato",      active: "bg-purple-500 text-white border-purple-500" },
+                {
+                  id: "danneggiato",
+                  label: "Danneggiato",
+                  active: "bg-red-500 text-white border-red-500",
+                },
+                {
+                  id: "rubato",
+                  label: "Rubato",
+                  active: "bg-purple-500 text-white border-purple-500",
+                },
               ].map((t) => (
                 <button
                   key={t.id}
@@ -212,7 +238,8 @@ export default function CheckPage({ params }) {
   const shelfId = resolvedParams.shelfId;
 
   // ── LOGICA SCAFFALE VIRTUALE (V12, VH) ──
-  const isVirtualShelf = typeof shelfId === 'string' && shelfId.toUpperCase().startsWith("V");
+  const isVirtualShelf =
+    typeof shelfId === "string" && shelfId.toUpperCase().startsWith("V");
 
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -226,7 +253,7 @@ export default function CheckPage({ params }) {
   const [materialSmarrito, setMaterialSmarrito] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [lastScannedMessage, setLastScannedMessage] = useState(null);
-  
+
   const [resumingCheckId, setResumingCheckId] = useState(null);
 
   const [damageModal, setDamageModal] = useState(null);
@@ -248,7 +275,7 @@ export default function CheckPage({ params }) {
   } = useSWR(
     shelfId ? `party-${shelfId}` : null,
     () => (shelfId ? fetcher(shelfId) : null),
-    { revalidateOnFocus: false, revalidateOnReconnect: true }
+    { revalidateOnFocus: false, revalidateOnReconnect: true },
   );
 
   const partyData = data?.party;
@@ -268,25 +295,83 @@ export default function CheckPage({ params }) {
 
   // ── DEFINIZIONE DINAMICA CHECK TYPES (Fisico vs Virtuale) ──
   const baseCheckTypes = {
-    deposito_scaffale: { id: "deposito_scaffale",  name: "Carico dal Deposito allo Scaffale",  icon: Home,    color: "text-primary",   allowedRoles: ["magazziniere", "amministratore", "animatore", "responsabile", "driver"] },
-    scaffale_furgone:  { id: "scaffale_furgone",   name: "Carico dallo Scaffale al Furgone",   icon: Truck,   color: "text-secondary", allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
-    furgone_scaffale:  { id: "furgone_scaffale",   name: "Scarico dal Furgone allo Scaffale",  icon: MapPin,  color: "text-accent",    allowedRoles: ["animatore", "magazziniere", "amministratore", "responsabile", "driver"] },
-    scaffale_deposito: { id: "scaffale_deposito",  name: "Scarico dallo Scaffale al Deposito", icon: Package, color: "text-primary",   allowedRoles: ["magazziniere", "amministratore"] },
+    deposito_scaffale: {
+      id: "deposito_scaffale",
+      name: "Carico dal Deposito allo Scaffale",
+      icon: Home,
+      color: "text-primary",
+      allowedRoles: [
+        "magazziniere",
+        "amministratore",
+        "animatore",
+        "responsabile",
+        "driver",
+      ],
+    },
+    scaffale_furgone: {
+      id: "scaffale_furgone",
+      name: "Carico dallo Scaffale al Furgone",
+      icon: Truck,
+      color: "text-secondary",
+      allowedRoles: [
+        "animatore",
+        "magazziniere",
+        "amministratore",
+        "responsabile",
+        "driver",
+      ],
+    },
+    furgone_scaffale: {
+      id: "furgone_scaffale",
+      name: "Scarico dal Furgone allo Scaffale",
+      icon: MapPin,
+      color: "text-accent",
+      allowedRoles: [
+        "animatore",
+        "magazziniere",
+        "amministratore",
+        "responsabile",
+        "driver",
+      ],
+    },
+    scaffale_deposito: {
+      id: "scaffale_deposito",
+      name: "Scarico dallo Scaffale al Deposito",
+      icon: Package,
+      color: "text-primary",
+      allowedRoles: ["magazziniere", "amministratore"],
+    },
   };
 
   let checkTypes = [];
   if (isVirtualShelf) {
     if (isSource) {
-      checkTypes.push({ ...baseCheckTypes.furgone_scaffale, name: "Passaggio Materiale (Cessione)", icon: Send, color: "text-indigo-500" });
+      checkTypes.push({
+        ...baseCheckTypes.furgone_scaffale,
+        name: "Passaggio Materiale (Cessione)",
+        icon: Send,
+        color: "text-indigo-500",
+      });
     }
     if (isDestination) {
-      checkTypes.push({ ...baseCheckTypes.deposito_scaffale, name: "Materiale Ricevuto (Handoff)", icon: Package, color: "text-violet-500" });
+      checkTypes.push({
+        ...baseCheckTypes.deposito_scaffale,
+        name: "Materiale Ricevuto (Handoff)",
+        icon: Package,
+        color: "text-violet-500",
+      });
     }
   } else {
     if (isSource) {
-      checkTypes.push(baseCheckTypes.deposito_scaffale, baseCheckTypes.scaffale_furgone);
+      checkTypes.push(
+        baseCheckTypes.deposito_scaffale,
+        baseCheckTypes.scaffale_furgone,
+      );
     } else if (isDestination) {
-      checkTypes.push(baseCheckTypes.furgone_scaffale, baseCheckTypes.scaffale_deposito);
+      checkTypes.push(
+        baseCheckTypes.furgone_scaffale,
+        baseCheckTypes.scaffale_deposito,
+      );
     } else {
       checkTypes = Object.values(baseCheckTypes);
     }
@@ -318,13 +403,22 @@ export default function CheckPage({ params }) {
         if (matchingItem) {
           found = true;
           foundName = matchingItem.name;
-          if (matchingItem.materiale_mancante || reportedItemIds.has(matchingItem.id)) {
-            alert(`⚠️ ATTENZIONE: ${foundName} è segnalato come non disponibile nel sistema!`);
+          if (
+            matchingItem.materiale_mancante ||
+            reportedItemIds.has(matchingItem.id)
+          ) {
+            alert(
+              `⚠️ ATTENZIONE: ${foundName} è segnalato come non disponibile nel sistema!`,
+            );
             return;
           }
           const itemKey = `${macro.id}-${category.id}-${matchingItem.id}`;
           setCheckedItems((prev) => {
-            if (!prev[itemKey] && typeof navigator !== "undefined" && navigator.vibrate) {
+            if (
+              !prev[itemKey] &&
+              typeof navigator !== "undefined" &&
+              navigator.vibrate
+            ) {
               navigator.vibrate([100, 50, 100]);
             }
             return { ...prev, [itemKey]: true };
@@ -336,12 +430,16 @@ export default function CheckPage({ params }) {
           found = true;
           foundName = category.name;
           if (category.materiale_mancante || reportedItemIds.has(category.id)) {
-            alert(`⚠️ ATTENZIONE: ${foundName} è segnalato come non disponibile nel sistema!`);
+            alert(
+              `⚠️ ATTENZIONE: ${foundName} è segnalato come non disponibile nel sistema!`,
+            );
             return;
           }
           const hasItems = category.items && category.items.length > 0;
           if (hasItems && !categoriaConsentita) {
-            alert(`⛔ In questa fase devi scansionare ogni elemento singolarmente. Scannerizza i singoli oggetti della categoria "${category.name}".`);
+            alert(
+              `⛔ In questa fase devi scansionare ogni elemento singolarmente. Scannerizza i singoli oggetti della categoria "${category.name}".`,
+            );
             return;
           }
           if (typeof navigator !== "undefined" && navigator.vibrate) {
@@ -386,8 +484,14 @@ export default function CheckPage({ params }) {
     setIsLoggingIn(true);
     setLoginError("");
     try {
-      const result = await authenticateUser(loginData.name.toLowerCase().trim(), loginData.code);
-      if (result.error) { setLoginError(result.error); return; }
+      const result = await authenticateUser(
+        loginData.name.toLowerCase().trim(),
+        loginData.code,
+      );
+      if (result.error) {
+        setLoginError(result.error);
+        return;
+      }
       const user = result.user;
       sessionStorage.setItem("currentUser", JSON.stringify(user));
       setCurrentUser(user);
@@ -406,15 +510,20 @@ export default function CheckPage({ params }) {
     setCheckType(typeId);
 
     const prefilled = {};
-    const okItems = new Set(checkObj.check_items?.filter(ci => ci.stato === 'ok').map(ci => ci.inventory_id) || []);
+    const okItems = new Set(
+      checkObj.check_items
+        ?.filter((ci) => ci.stato === "ok")
+        .map((ci) => ci.inventory_id) || [],
+    );
 
-    materialData.forEach(macro => {
-      macro.categories.forEach(cat => {
+    materialData.forEach((macro) => {
+      macro.categories.forEach((cat) => {
         if (!cat.items || cat.items.length === 0) {
           if (okItems.has(cat.id)) prefilled[`${macro.id}-${cat.id}`] = true;
         } else {
-          cat.items.forEach(item => {
-            if (okItems.has(item.id)) prefilled[`${macro.id}-${cat.id}-${item.id}`] = true;
+          cat.items.forEach((item) => {
+            if (okItems.has(item.id))
+              prefilled[`${macro.id}-${cat.id}-${item.id}`] = true;
           });
         }
       });
@@ -425,7 +534,9 @@ export default function CheckPage({ params }) {
   const handleSubmitCheck = async () => {
     if (!partyData || !currentUser || !shelfId) return;
     if (!isAllItemsChecked() && !materialSmarrito) {
-      alert("Devi scansionare tutti gli elementi o spuntare 'materiale smarrito' per procedere.");
+      alert(
+        "Devi scansionare tutti gli elementi o spuntare 'materiale smarrito' per procedere.",
+      );
       return;
     }
     setIsSubmitting(true);
@@ -438,33 +549,36 @@ export default function CheckPage({ params }) {
           if (!category.items || category.items.length === 0) {
             const isChecked = !!checkedItems[`${macro.id}-${category.id}`];
             const reportInfo = getReportInfo(category.id);
-            
-            let stato = isChecked ? 'ok' : 'mancante';
+
+            let stato = isChecked ? "ok" : "mancante";
             if (!isChecked && reportInfo) stato = reportInfo.tipo;
-            else if (!isChecked && category.materiale_mancante) stato = 'mancante';
+            else if (!isChecked && category.materiale_mancante)
+              stato = "mancante";
 
             itemsResults.push({
               inventory_id: category.id,
               quantita_prevista: 1,
               quantita_trovata: isChecked ? 1 : 0,
               stato: stato,
-              note: ""
+              note: "",
             });
           } else {
             category.items.forEach((item) => {
-              const isChecked = !!checkedItems[`${macro.id}-${category.id}-${item.id}`];
+              const isChecked =
+                !!checkedItems[`${macro.id}-${category.id}-${item.id}`];
               const reportInfo = getReportInfo(item.id);
-              
-              let stato = isChecked ? 'ok' : 'mancante';
+
+              let stato = isChecked ? "ok" : "mancante";
               if (!isChecked && reportInfo) stato = reportInfo.tipo;
-              else if (!isChecked && item.materiale_mancante) stato = 'mancante';
+              else if (!isChecked && item.materiale_mancante)
+                stato = "mancante";
 
               itemsResults.push({
                 inventory_id: item.id,
                 quantita_prevista: 1,
                 quantita_trovata: isChecked ? 1 : 0,
                 stato: stato,
-                note: ""
+                note: "",
               });
             });
           }
@@ -472,23 +586,26 @@ export default function CheckPage({ params }) {
       });
 
       const result = await submitCheck(
-        partyData.id, 
-        currentUser.id, 
-        currentUser.ruolo, 
-        checkType, 
+        partyData.id,
+        currentUser.id,
+        currentUser.ruolo,
+        checkType,
         shelfId,
-        getCheckedCount(), 
-        getTotalItems(), 
-        currentUser.nome, 
+        getCheckedCount(),
+        getTotalItems(),
+        currentUser.nome,
         partyData.nome,
-        materialSmarrito, 
+        materialSmarrito,
         uncheckedItemIds,
         itemsResults,
         resumingCheckId,
-        isVirtualShelf // <-- PASSATO AL BACKEND PER LA LOGICA HANDOFF
+        isVirtualShelf, // <-- PASSATO AL BACKEND PER LA LOGICA HANDOFF
       );
-      
-      if (result.error) { alert(`Errore: ${result.error}`); return; }
+
+      if (result.error) {
+        alert(`Errore: ${result.error}`);
+        return;
+      }
 
       const snapshot = buildCheckedSnapshot();
       setLastCheckId(result.checkId);
@@ -497,7 +614,12 @@ export default function CheckPage({ params }) {
 
       const initialDamageState = {};
       snapshot.forEach((item) => {
-        initialDamageState[item.inventoryId] = { enabled: false, tipo: "danneggiato", note: "", valoreStimato: "" };
+        initialDamageState[item.inventoryId] = {
+          enabled: false,
+          tipo: "danneggiato",
+          note: "",
+          valoreStimato: "",
+        };
       });
       setItemDamageState(initialDamageState);
       setCheckedItems({});
@@ -520,13 +642,23 @@ export default function CheckPage({ params }) {
         if (!category.items || category.items.length === 0) {
           const categoryKey = `${macro.id}-${category.id}`;
           if (checkedItems[categoryKey]) {
-            snapshot.push({ inventoryId: category.id, name: category.name, macroName: macro.name, categoryName: null });
+            snapshot.push({
+              inventoryId: category.id,
+              name: category.name,
+              macroName: macro.name,
+              categoryName: null,
+            });
           }
         } else {
           category.items.forEach((item) => {
             const itemKey = `${macro.id}-${category.id}-${item.id}`;
             if (checkedItems[itemKey] && !item.materiale_mancante) {
-              snapshot.push({ inventoryId: item.id, name: item.name, macroName: macro.name, categoryName: category.name });
+              snapshot.push({
+                inventoryId: item.id,
+                name: item.name,
+                macroName: macro.name,
+                categoryName: category.name,
+              });
             }
           });
         }
@@ -556,7 +688,10 @@ export default function CheckPage({ params }) {
   const toggleItemDamage = (inventoryId) => {
     setItemDamageState((prev) => ({
       ...prev,
-      [inventoryId]: { ...prev[inventoryId], enabled: !prev[inventoryId]?.enabled },
+      [inventoryId]: {
+        ...prev[inventoryId],
+        enabled: !prev[inventoryId]?.enabled,
+      },
     }));
     if (!itemDamageState[inventoryId]?.enabled) {
       setExpandedDamage((prev) => ({ ...prev, [inventoryId]: true }));
@@ -566,7 +701,10 @@ export default function CheckPage({ params }) {
   };
 
   const updateItemDamageField = (inventoryId, field, value) => {
-    setItemDamageState((prev) => ({ ...prev, [inventoryId]: { ...prev[inventoryId], [field]: value } }));
+    setItemDamageState((prev) => ({
+      ...prev,
+      [inventoryId]: { ...prev[inventoryId], [field]: value },
+    }));
   };
 
   const handleSubmitLosses = async () => {
@@ -576,11 +714,27 @@ export default function CheckPage({ params }) {
         .filter((item) => itemDamageState[item.inventoryId]?.enabled)
         .map((item) => {
           const damage = itemDamageState[item.inventoryId];
-          return { inventoryId: item.inventoryId, tipo: damage.tipo, quantita: 1, valoreStimato: damage.valoreStimato ? Number(damage.valoreStimato) : null, note: damage.note || null };
+          return {
+            inventoryId: item.inventoryId,
+            tipo: damage.tipo,
+            quantita: 1,
+            valoreStimato: damage.valoreStimato
+              ? Number(damage.valoreStimato)
+              : null,
+            note: damage.note || null,
+          };
         });
       if (losses.length > 0) {
-        const result = await reportLosses(lastCheckId, lastPartyId, currentUser.id, losses);
-        if (result.error) { alert(`Errore nel salvataggio delle segnalazioni: ${result.error}`); return; }
+        const result = await reportLosses(
+          lastCheckId,
+          lastPartyId,
+          currentUser.id,
+          losses,
+        );
+        if (result.error) {
+          alert(`Errore nel salvataggio delle segnalazioni: ${result.error}`);
+          return;
+        }
       }
       setLossPhase("done");
     } catch (error) {
@@ -590,7 +744,9 @@ export default function CheckPage({ params }) {
     }
   };
 
-  const damagedCount = Object.values(itemDamageState).filter((v) => v?.enabled).length;
+  const damagedCount = Object.values(itemDamageState).filter(
+    (v) => v?.enabled,
+  ).length;
 
   const getTotalItems = () => {
     let total = 0;
@@ -601,15 +757,22 @@ export default function CheckPage({ params }) {
         if (!category.items || category.items.length === 0) {
           total += 1;
         } else {
-          total += category.items.filter((item) => !item.materiale_mancante && !reportedItemIds.has(item.id)).length;
+          total += category.items.filter(
+            (item) => !item.materiale_mancante && !reportedItemIds.has(item.id),
+          ).length;
         }
       });
     });
     return total;
   };
 
-  const getCheckedCount = () => Object.values(checkedItems).filter(Boolean).length;
-  const getProgress = () => { const total = getTotalItems(); const checked = getCheckedCount(); return total > 0 ? (checked / total) * 100 : 0; };
+  const getCheckedCount = () =>
+    Object.values(checkedItems).filter(Boolean).length;
+  const getProgress = () => {
+    const total = getTotalItems();
+    const checked = getCheckedCount();
+    return total > 0 ? (checked / total) * 100 : 0;
+  };
 
   const isAllItemsChecked = () => {
     let totalSelectable = 0;
@@ -617,7 +780,10 @@ export default function CheckPage({ params }) {
     materialData.forEach((macro) => {
       macro.categories.forEach((category) => {
         if (!category.items || category.items.length === 0) {
-          if (!category.materiale_mancante && !reportedItemIds.has(category.id)) {
+          if (
+            !category.materiale_mancante &&
+            !reportedItemIds.has(category.id)
+          ) {
             totalSelectable++;
             if (checkedItems[`${macro.id}-${category.id}`]) checkedSelectable++;
           }
@@ -625,7 +791,8 @@ export default function CheckPage({ params }) {
           category.items.forEach((item) => {
             if (!item.materiale_mancante && !reportedItemIds.has(item.id)) {
               totalSelectable++;
-              if (checkedItems[`${macro.id}-${category.id}-${item.id}`]) checkedSelectable++;
+              if (checkedItems[`${macro.id}-${category.id}-${item.id}`])
+                checkedSelectable++;
             }
           });
         }
@@ -640,7 +807,8 @@ export default function CheckPage({ params }) {
       macro.categories.forEach((category) => {
         if (!category.items || category.items.length === 0) {
           const categoryKey = `${macro.id}-${category.id}`;
-          if (!checkedItems[categoryKey] && !reportedItemIds.has(category.id)) uncheckedIds.push(category.id);
+          if (!checkedItems[categoryKey] && !reportedItemIds.has(category.id))
+            uncheckedIds.push(category.id);
         } else {
           category.items.forEach((item) => {
             if (!item.materiale_mancante && !reportedItemIds.has(item.id)) {
@@ -658,9 +826,13 @@ export default function CheckPage({ params }) {
     if (!category.items || category.items.length === 0) {
       return !!checkedItems[`${macro.id}-${category.id}`];
     }
-    const eligible = category.items.filter((i) => !i.materiale_mancante && !reportedItemIds.has(i.id));
+    const eligible = category.items.filter(
+      (i) => !i.materiale_mancante && !reportedItemIds.has(i.id),
+    );
     if (eligible.length === 0) return false;
-    return eligible.every((item) => checkedItems[`${macro.id}-${category.id}-${item.id}`]);
+    return eligible.every(
+      (item) => checkedItems[`${macro.id}-${category.id}-${item.id}`],
+    );
   };
 
   const handleDownloadList = () => {
@@ -693,7 +865,7 @@ export default function CheckPage({ params }) {
   <h1>${partyData.nome}</h1>
   <div class="meta">
     ${dateStr} — ${partyData.luogo}
-    ${allPartyShelves.length > 0 ? ' &nbsp;|&nbsp; Scaffali: ' + allPartyShelves.map(s => '<span class="shelf-badge">#' + s + '</span>').join(' ') : ''}
+    ${allPartyShelves.length > 0 ? " &nbsp;|&nbsp; Scaffali: " + allPartyShelves.map((s) => '<span class="shelf-badge">#' + s + "</span>").join(" ") : ""}
   </div>`;
 
     for (const macro of materialData) {
@@ -704,12 +876,16 @@ export default function CheckPage({ params }) {
         html += `
     <div class="cat">${cat.name}</div>`;
         if (!cat.items || cat.items.length === 0) {
-          const cls = cat.materiale_mancante ? ' class="item missing"' : ' class="item"';
+          const cls = cat.materiale_mancante
+            ? ' class="item missing"'
+            : ' class="item"';
           html += `
     <div${cls}><span class="check"></span>${cat.name}${cat.materiale_mancante ? " — MANCANTE" : ""}</div>`;
         } else {
           for (const item of cat.items) {
-            const cls = item.materiale_mancante ? ' class="item missing"' : ' class="item"';
+            const cls = item.materiale_mancante
+              ? ' class="item missing"'
+              : ' class="item"';
             html += `
       <div${cls}><span class="check"></span>${item.name}${item.materiale_mancante ? " — MANCANTE" : ""}</div>`;
           }
@@ -745,7 +921,11 @@ export default function CheckPage({ params }) {
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">{!shelfId ? "Caricamento..." : `Caricamento festa per scaffale ${isVirtualShelf ? "virtuale " : ""}${shelfId}...`}</p>
+          <p className="text-muted-foreground">
+            {!shelfId
+              ? "Caricamento..."
+              : `Caricamento festa per scaffale ${isVirtualShelf ? "virtuale " : ""}${shelfId}...`}
+          </p>
         </div>
       </div>
     );
@@ -754,12 +934,22 @@ export default function CheckPage({ params }) {
   if (partyError) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
           <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
             <Package className="w-8 h-8 text-muted-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale {isVirtualShelf ? "Virtuale " : ""}{shelfId}</h1>
-          <p className="text-muted-foreground mb-6">Non è stata trovata nessuna festa assegnata a questo scaffale. Contatta l'amministratore.</p>
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            Scaffale {isVirtualShelf ? "Virtuale " : ""}
+            {shelfId}
+          </h1>
+          <p className="text-muted-foreground mb-6">
+            Non è stata trovata nessuna festa assegnata a questo scaffale.
+            Contatta l'amministratore.
+          </p>
         </motion.div>
       </div>
     );
@@ -768,12 +958,29 @@ export default function CheckPage({ params }) {
   if (partyCompleted && lossPhase === "idle") {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Scaffale Libero</h1>
-          <p className="text-muted-foreground">Tutti i check per la festa <span className="font-semibold text-foreground">"{partyData?.nome}"</span> sono stati completati. Lo scaffale <span className="font-semibold">{isVirtualShelf ? "virtuale " : ""}{shelfId}</span> è ora disponibile.</p>
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            Scaffale Libero
+          </h1>
+          <p className="text-muted-foreground">
+            Tutti i check per la festa{" "}
+            <span className="font-semibold text-foreground">
+              "{partyData?.nome}"
+            </span>{" "}
+            sono stati completati. Lo scaffale{" "}
+            <span className="font-semibold">
+              {isVirtualShelf ? "virtuale " : ""}
+              {shelfId}
+            </span>{" "}
+            è ora disponibile.
+          </p>
         </motion.div>
       </div>
     );
@@ -781,19 +988,29 @@ export default function CheckPage({ params }) {
 
   if (currentUser && partyData?.animatore_id) {
     const role = currentUser.ruolo;
-    const animatoriIds   = partyData.animatori_ids   || [];
+    const animatoriIds = partyData.animatori_ids || [];
     const responsabiliIds = partyData.responsabili_ids || [];
-    const driversIds      = partyData.drivers_ids      || [];
+    const driversIds = partyData.drivers_ids || [];
 
     if (role === "animatore") {
-      const isAssigned = partyData.animatore_id === currentUser.id || animatoriIds.includes(currentUser.id);
+      const isAssigned =
+        partyData.animatore_id === currentUser.id ||
+        animatoriIds.includes(currentUser.id);
       if (!isAssigned) {
         return (
           <div className="min-h-screen bg-surface flex items-center justify-center">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+            >
               <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
-              <p className="text-muted-foreground mb-6">Non sei tra gli animatori assegnati a questa festa.</p>
+              <h1 className="text-2xl font-bold text-foreground mb-2">
+                Accesso Negato
+              </h1>
+              <p className="text-muted-foreground mb-6">
+                Non sei tra gli animatori assegnati a questa festa.
+              </p>
             </motion.div>
           </div>
         );
@@ -804,10 +1021,18 @@ export default function CheckPage({ params }) {
       if (!responsabiliIds.includes(currentUser.id)) {
         return (
           <div className="min-h-screen bg-surface flex items-center justify-center">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+            >
               <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
-              <p className="text-muted-foreground mb-6">Non sei tra i responsabili assegnati a questa festa.</p>
+              <h1 className="text-2xl font-bold text-foreground mb-2">
+                Accesso Negato
+              </h1>
+              <p className="text-muted-foreground mb-6">
+                Non sei tra i responsabili assegnati a questa festa.
+              </p>
             </motion.div>
           </div>
         );
@@ -818,10 +1043,18 @@ export default function CheckPage({ params }) {
       if (!driversIds.includes(currentUser.id)) {
         return (
           <div className="min-h-screen bg-surface flex items-center justify-center">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+            >
               <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-              <h1 className="text-2xl font-bold text-foreground mb-2">Accesso Negato</h1>
-              <p className="text-muted-foreground mb-6">Non sei tra i driver assegnati a questa festa.</p>
+              <h1 className="text-2xl font-bold text-foreground mb-2">
+                Accesso Negato
+              </h1>
+              <p className="text-muted-foreground mb-6">
+                Non sei tra i driver assegnati a questa festa.
+              </p>
             </motion.div>
           </div>
         );
@@ -832,32 +1065,79 @@ export default function CheckPage({ params }) {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4"
+        >
           <div className="text-center mb-6">
             <div className="w-16 h-16 gradient-primary rounded-full flex items-center justify-center mx-auto mb-4">
               <Package className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">Accesso {isVirtualShelf ? "Scaffale Virtuale" : "Scaffale"} {shelfId}</h1>
-            <p className="text-muted-foreground">Inserisci le tue credenziali per accedere al check</p>
-            {partyData && <p className="text-sm text-primary mt-2 font-medium">Festa: {partyData.nome}</p>}
+            <h1 className="text-2xl font-bold text-foreground mb-2">
+              Accesso {isVirtualShelf ? "Scaffale Virtuale" : "Scaffale"}{" "}
+              {shelfId}
+            </h1>
+            <p className="text-muted-foreground">
+              Inserisci le tue credenziali per accedere al check
+            </p>
+            {partyData && (
+              <p className="text-sm text-primary mt-2 font-medium">
+                Festa: {partyData.nome}
+              </p>
+            )}
           </div>
-          {loginError && <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-4">{loginError}</div>}
+          {loginError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-4">
+              {loginError}
+            </div>
+          )}
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Nome</label>
-              <input type="text" value={loginData.name} onChange={(e) => setLoginData((prev) => ({ ...prev, name: e.target.value }))} className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" placeholder="Il tuo nome" required disabled={isLoggingIn} />
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Nome
+              </label>
+              <input
+                type="text"
+                value={loginData.name}
+                onChange={(e) =>
+                  setLoginData((prev) => ({ ...prev, name: e.target.value }))
+                }
+                className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Il tuo nome"
+                required
+                disabled={isLoggingIn}
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Codice di Sicurezza</label>
-              <input type="password" value={loginData.code} onChange={(e) => setLoginData((prev) => ({ ...prev, code: e.target.value }))} className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" placeholder="Codice" required disabled={isLoggingIn} />
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Codice di Sicurezza
+              </label>
+              <input
+                type="password"
+                value={loginData.code}
+                onChange={(e) =>
+                  setLoginData((prev) => ({ ...prev, code: e.target.value }))
+                }
+                className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Codice"
+                required
+                disabled={isLoggingIn}
+              />
             </div>
-            <button type="submit" className="w-full btn-primary" disabled={isLoggingIn}>
+            <button
+              type="submit"
+              className="w-full btn-primary"
+              disabled={isLoggingIn}
+            >
               {isLoggingIn ? (
                 <div className="flex items-center justify-center space-x-2">
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   <span>Accesso in corso...</span>
                 </div>
-              ) : "Accedi al Check"}
+              ) : (
+                "Accedi al Check"
+              )}
             </button>
           </form>
         </motion.div>
@@ -875,34 +1155,50 @@ export default function CheckPage({ params }) {
     return (
       <div className="min-h-screen bg-surface pb-28">
         <div className="containerMod py-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-2xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-2xl mx-auto"
+          >
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
                   <AlertTriangle className="w-5 h-5 text-amber-600" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-foreground">Segnala Problemi</h1>
-                  <p className="text-sm text-muted-foreground">Check completato ✓ — Spunta gli elementi con problemi e specifica il tipo.</p>
+                  <h1 className="text-xl font-bold text-foreground">
+                    Segnala Problemi
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    Check completato ✓ — Spunta gli elementi con problemi e
+                    specifica il tipo.
+                  </p>
                 </div>
               </div>
               {damagedCount > 0 && (
                 <div className="mt-4 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">
-                  {damagedCount} element{damagedCount === 1 ? "o segnalato" : "i segnalati"}
+                  {damagedCount} element
+                  {damagedCount === 1 ? "o segnalato" : "i segnalati"}
                 </div>
               )}
             </div>
 
             <div className="space-y-6 mb-6">
               {Object.entries(groupedByMacro).map(([macroName, items]) => (
-                <div key={macroName} className="bg-card rounded-xl border border-border overflow-hidden">
+                <div
+                  key={macroName}
+                  className="bg-card rounded-xl border border-border overflow-hidden"
+                >
                   <div className="px-4 py-3 bg-surface border-b border-border flex items-center gap-2">
                     <Package className="w-4 h-4 text-primary" />
-                    <span className="font-semibold text-foreground text-sm">{macroName}</span>
+                    <span className="font-semibold text-foreground text-sm">
+                      {macroName}
+                    </span>
                   </div>
                   <div className="divide-y divide-border">
                     {items.map((item) => {
-                      const damageState = itemDamageState[item.inventoryId] || {};
+                      const damageState =
+                        itemDamageState[item.inventoryId] || {};
                       const isDamaged = damageState.enabled;
 
                       return (
@@ -910,38 +1206,101 @@ export default function CheckPage({ params }) {
                           <div className="flex items-center gap-3">
                             <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
-                              {item.categoryName && <p className="text-xs text-muted-foreground">{item.categoryName}</p>}
+                              <p className="text-sm font-medium text-foreground truncate">
+                                {item.name}
+                              </p>
+                              {item.categoryName && (
+                                <p className="text-xs text-muted-foreground">
+                                  {item.categoryName}
+                                </p>
+                              )}
                             </div>
                             <label className="flex items-center gap-2 cursor-pointer shrink-0 select-none">
-                              <span className={`text-xs font-semibold ${isDamaged ? "text-red-600" : "text-muted-foreground"}`}>Problema</span>
-                              <div onClick={() => toggleItemDamage(item.inventoryId)} className={`w-10 h-6 rounded-full transition-colors relative cursor-pointer ${isDamaged ? "bg-red-500" : "bg-gray-200"}`}>
-                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${isDamaged ? "translate-x-5" : "translate-x-1"}`} />
+                              <span
+                                className={`text-xs font-semibold ${isDamaged ? "text-red-600" : "text-muted-foreground"}`}
+                              >
+                                Problema
+                              </span>
+                              <div
+                                onClick={() =>
+                                  toggleItemDamage(item.inventoryId)
+                                }
+                                className={`w-10 h-6 rounded-full transition-colors relative cursor-pointer ${isDamaged ? "bg-red-500" : "bg-gray-200"}`}
+                              >
+                                <div
+                                  className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${isDamaged ? "translate-x-5" : "translate-x-1"}`}
+                                />
                               </div>
                             </label>
                           </div>
                           <AnimatePresence>
                             {isDamaged && (
-                              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden"
+                              >
                                 <div className="mt-3 pt-3 border-t border-border space-y-3">
                                   <div>
-                                    <p className="text-xs font-medium text-foreground mb-2">Tipo problema</p>
+                                    <p className="text-xs font-medium text-foreground mb-2">
+                                      Tipo problema
+                                    </p>
                                     <div className="flex gap-2">
                                       {LOSS_TYPES.map((type) => (
-                                        <button key={type.id} onClick={() => updateItemDamageField(item.inventoryId, "tipo", type.id)}
-                                          className={`flex-1 py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all ${damageState.tipo === type.id ? type.color + " ring-1 ring-offset-1" : "bg-surface border-border text-muted-foreground"}`}>
+                                        <button
+                                          key={type.id}
+                                          onClick={() =>
+                                            updateItemDamageField(
+                                              item.inventoryId,
+                                              "tipo",
+                                              type.id,
+                                            )
+                                          }
+                                          className={`flex-1 py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all ${damageState.tipo === type.id ? type.color + " ring-1 ring-offset-1" : "bg-surface border-border text-muted-foreground"}`}
+                                        >
                                           {type.label}
                                         </button>
                                       ))}
                                     </div>
                                   </div>
                                   <div>
-                                    <p className="text-xs font-medium text-foreground mb-1">Valore stimato (€) — opzionale</p>
-                                    <input type="number" min="0" step="0.01" placeholder="es. 15.00" value={damageState.valoreStimato || ""} onChange={(e) => updateItemDamageField(item.inventoryId, "valoreStimato", e.target.value)} className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm" />
+                                    <p className="text-xs font-medium text-foreground mb-1">
+                                      Valore stimato (€) — opzionale
+                                    </p>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder="es. 15.00"
+                                      value={damageState.valoreStimato || ""}
+                                      onChange={(e) =>
+                                        updateItemDamageField(
+                                          item.inventoryId,
+                                          "valoreStimato",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                                    />
                                   </div>
                                   <div>
-                                    <p className="text-xs font-medium text-foreground mb-1">Note — opzionale</p>
-                                    <textarea rows={2} placeholder="Descrivi il problema..." value={damageState.note || ""} onChange={(e) => updateItemDamageField(item.inventoryId, "note", e.target.value)} className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm resize-none" />
+                                    <p className="text-xs font-medium text-foreground mb-1">
+                                      Note — opzionale
+                                    </p>
+                                    <textarea
+                                      rows={2}
+                                      placeholder="Descrivi il problema..."
+                                      value={damageState.note || ""}
+                                      onChange={(e) =>
+                                        updateItemDamageField(
+                                          item.inventoryId,
+                                          "note",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm resize-none"
+                                    />
                                   </div>
                                 </div>
                               </motion.div>
@@ -956,8 +1315,26 @@ export default function CheckPage({ params }) {
             </div>
 
             <div className="sticky bottom-4">
-              <button onClick={handleSubmitLosses} disabled={isSubmittingLosses} className="w-full btn-primary py-4 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-xl">
-                {isSubmittingLosses ? (<><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Salvataggio...</span></>) : (<><Send className="w-5 h-5" /><span>{damagedCount > 0 ? `Invia ${damagedCount} segnalazion${damagedCount === 1 ? "e" : "i"}` : "Nessun problema — Conferma"}</span></>)}
+              <button
+                onClick={handleSubmitLosses}
+                disabled={isSubmittingLosses}
+                className="w-full btn-primary py-4 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-xl"
+              >
+                {isSubmittingLosses ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Salvataggio...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    <span>
+                      {damagedCount > 0
+                        ? `Invia ${damagedCount} segnalazion${damagedCount === 1 ? "e" : "i"}`
+                        : "Nessun problema — Conferma"}
+                    </span>
+                  </>
+                )}
               </button>
             </div>
           </motion.div>
@@ -969,13 +1346,31 @@ export default function CheckPage({ params }) {
   if (lossPhase === "done") {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Tutto Completato!</h1>
-          <p className="text-muted-foreground mb-6">Check e segnalazioni salvati con successo.</p>
-          <button onClick={() => { setLossPhase("idle"); setLastCheckId(null); setLastPartyId(null); setCheckedItemsSnapshot([]); setItemDamageState({}); mutate(); }} className="btn-primary w-full">
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            Tutto Completato!
+          </h1>
+          <p className="text-muted-foreground mb-6">
+            Check e segnalazioni salvati con successo.
+          </p>
+          <button
+            onClick={() => {
+              setLossPhase("idle");
+              setLastCheckId(null);
+              setLastPartyId(null);
+              setCheckedItemsSnapshot([]);
+              setItemDamageState({});
+              mutate();
+            }}
+            className="btn-primary w-full"
+          >
             Torna alla Pagina
           </button>
         </motion.div>
@@ -983,18 +1378,38 @@ export default function CheckPage({ params }) {
     );
   }
 
-  const isCurrentCheckCompleted = checkType && existingChecks.some((c) => c.type === checkType) && !resumingCheckId;
+  const isCurrentCheckCompleted =
+    checkType &&
+    existingChecks.some((c) => c.type === checkType) &&
+    !resumingCheckId;
 
   if (isCurrentCheckCompleted) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center"
+        >
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Check Completato</h1>
-          <p className="text-muted-foreground mb-6">Questo tipo di check è già stato completato per la festa "{partyData?.nome}".</p>
-          <button onClick={() => { setCheckType(""); setResumingCheckId(null); }} className="btn-primary w-full mb-2">Scegli Altro Check</button>
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            Check Completato
+          </h1>
+          <p className="text-muted-foreground mb-6">
+            Questo tipo di check è già stato completato per la festa "
+            {partyData?.nome}".
+          </p>
+          <button
+            onClick={() => {
+              setCheckType("");
+              setResumingCheckId(null);
+            }}
+            className="btn-primary w-full mb-2"
+          >
+            Scegli Altro Check
+          </button>
         </motion.div>
       </div>
     );
@@ -1004,11 +1419,16 @@ export default function CheckPage({ params }) {
     return (
       <div className="min-h-screen bg-surface">
         <div className="containerMod py-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-2xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-2xl mx-auto"
+          >
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <h1 className="text-2xl font-bold text-foreground">
-                 {isVirtualShelf ? "Scaffale Virtuale" : "Scaffale"} {shelfId.toUpperCase()}
+                  {isVirtualShelf ? "Scaffale Virtuale" : "Scaffale"}{" "}
+                  {shelfId.toUpperCase()}
                 </h1>
                 <button
                   onClick={handleDownloadList}
@@ -1020,25 +1440,55 @@ export default function CheckPage({ params }) {
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center space-x-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Festa:</span><span className="font-medium text-foreground">{partyData.nome}</span></div>
-                <div className="flex items-center space-x-2"><Clock className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Data:</span><span className="font-medium text-foreground">{new Date(partyData.data).toLocaleDateString("it-IT")}</span></div>
-                <div className="flex items-center space-x-2"><MapPin className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Luogo:</span><span className="font-medium text-foreground">{partyData.luogo}</span></div>
-                <div className="flex items-center space-x-2"><User className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Animatore:</span><span className="font-medium text-foreground">{partyData.animatore?.nome || "Non assegnato"}</span></div>
+                <div className="flex items-center space-x-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Festa:</span>
+                  <span className="font-medium text-foreground">
+                    {partyData.nome}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Data:</span>
+                  <span className="font-medium text-foreground">
+                    {new Date(partyData.data).toLocaleDateString("it-IT")}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <MapPin className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Luogo:</span>
+                  <span className="font-medium text-foreground">
+                    {partyData.luogo}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <User className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Animatore:</span>
+                  <span className="font-medium text-foreground">
+                    {partyData.animatore?.nome || "Non assegnato"}
+                  </span>
+                </div>
               </div>
               {allPartyShelves.length > 1 && (
                 <div className="mt-4 pt-4 border-t border-border">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                    <Layers className="w-3.5 h-3.5" /> Tutti gli scaffali di questa festa
+                    <Layers className="w-3.5 h-3.5" /> Tutti gli scaffali di
+                    questa festa
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {allPartyShelves.map((s) => (
-                      <span key={s}
+                      <span
+                        key={s}
                         className={`text-sm font-bold px-3 py-1 rounded-full border ${
-                         s.toLowerCase() === shelfId.toLowerCase()
+                          s.toLowerCase() === shelfId.toLowerCase()
                             ? "bg-primary/10 text-primary border-primary/30"
                             : "bg-surface text-muted-foreground border-border"
-                        }`}>
-                        #{s}{s === (isVirtualShelf ? shelfId.substring(1) : shelfId) ? " ← questo" : ""}
+                        }`}
+                      >
+                        #{s}
+                        {s === (isVirtualShelf ? shelfId.substring(1) : shelfId)
+                          ? " ← questo"
+                          : ""}
                       </span>
                     ))}
                   </div>
@@ -1047,11 +1497,14 @@ export default function CheckPage({ params }) {
             </div>
 
             <div className="space-y-4">
-              <h2 className="text-xl font-semibold text-foreground">Seleziona il tipo di check</h2>
-              
+              <h2 className="text-xl font-semibold text-foreground">
+                Seleziona il tipo di check
+              </h2>
+
               {checkTypes.length === 0 && (
                 <div className="p-4 bg-amber-50 text-amber-700 rounded-lg text-sm font-medium border border-amber-200">
-                  Questa festa non prevede passaggi di materiale (Handoff), oppure lo scaffale virtuale non è applicabile.
+                  Questa festa non prevede passaggi di materiale (Handoff),
+                  oppure lo scaffale virtuale non è applicabile.
                 </div>
               )}
 
@@ -1059,52 +1512,153 @@ export default function CheckPage({ params }) {
                 {checkTypes.map((type, index) => {
                   const Icon = type.icon;
                   const isAdmin = userRole === "amministratore";
-                  
-                  const completedCheckObj = existingChecks.find((check) => check.type === type.id);
+
+                  const completedCheckObj = existingChecks.find(
+                    (check) => check.type === type.id,
+                  );
                   const isCompleted = !!completedCheckObj;
+
+                  // --- NUOVA LOGICA: Rilevamento materiale aggiunto post-check ---
+                  let isFullyCompleted = isCompleted;
+                  if (isCompleted) {
+                    // Raccoglie tutti gli ID degli oggetti già spuntati in questo check
+                    const checkedItemIds = new Set(
+                      completedCheckObj.check_items?.map(
+                        (ci) => ci.inventory_id,
+                      ) || [],
+                    );
+                    let hasNewUncheckedItems = false;
+
+                    // Controlla se esiste almeno un pezzo nel materialData attuale non presente nel check salvato
+                    materialData.forEach((macro) => {
+                      macro.categories.forEach((cat) => {
+                        if (!cat.items || cat.items.length === 0) {
+                          if (!checkedItemIds.has(cat.id))
+                            hasNewUncheckedItems = true;
+                        } else {
+                          cat.items.forEach((item) => {
+                            if (!checkedItemIds.has(item.id))
+                              hasNewUncheckedItems = true;
+                          });
+                        }
+                      });
+                    });
+
+                    if (hasNewUncheckedItems) {
+                      isFullyCompleted = false;
+                    }
+                  }
+                  // ----------------------------------------------------------------
 
                   let isPreviousCompleted = true;
                   if (index > 0) {
                     const previousType = checkTypes[index - 1];
-                    isPreviousCompleted = existingChecks.some((check) => check.type === previousType.id);
+                    isPreviousCompleted = existingChecks.some(
+                      (check) => check.type === previousType.id,
+                    );
                   }
-                  
+
                   const isRoleAllowed = type.allowedRoles.includes(userRole);
-                  const isDisabled = (isCompleted && !isAdmin) || !isPreviousCompleted || !isRoleAllowed;
-                  
+                  const isDisabled =
+                    (isCompleted && isFullyCompleted && !isAdmin) ||
+                    !isPreviousCompleted ||
+                    !isRoleAllowed;
+
                   let statusMessage = "";
                   let statusColor = "text-muted-foreground";
-                  
-                  if (isCompleted) { statusMessage = "✓ Check già completato"; statusColor = "text-green-700 font-medium"; }
-                  else if (!isPreviousCompleted) { statusMessage = "🔒 Richiede completamento fase precedente"; statusColor = "text-amber-700 font-bold"; }
-                  else if (!isRoleAllowed) { statusMessage = `⛔ Richiesto ruolo: ${type.allowedRoles.join(", ")}`; statusColor = "text-red-500"; }
-                  else { statusMessage = `Utente: ${currentUser.nome}`; }
+
+                  if (isCompleted && isFullyCompleted) {
+                    statusMessage = "✓ Check già completato";
+                    statusColor = "text-green-700 font-medium";
+                  } else if (isCompleted && !isFullyCompleted) {
+                    statusMessage =
+                      "⚠️ Nuovo materiale aggiunto! Clicca per aggiornare";
+                    statusColor = "text-amber-700 font-bold";
+                  } else if (!isPreviousCompleted) {
+                    statusMessage = "🔒 Richiede completamento fase precedente";
+                    statusColor = "text-amber-700 font-bold";
+                  } else if (!isRoleAllowed) {
+                    statusMessage = `⛔ Richiesto ruolo: ${type.allowedRoles.join(", ")}`;
+                    statusColor = "text-red-500";
+                  } else {
+                    statusMessage = `Utente: ${currentUser.nome}`;
+                  }
 
                   return (
-                    <motion.div key={type.id} whileHover={!isDisabled ? { scale: 1.01 } : {}} whileTap={!isDisabled ? { scale: 0.99 } : {}}
-                      onClick={() => { if (!isDisabled && !isCompleted) setCheckType(type.id); }}
-                      className={`bg-card p-6 rounded-xl border border-border text-left relative overflow-hidden transition-all duration-200 ${isCompleted && !isAdmin ? "opacity-60 bg-green-50 border-green-200" : isCompleted && isAdmin ? "border-green-300 shadow-sm" : !isPreviousCompleted ? "opacity-60 bg-gray-100 border-gray-200 grayscale" : !isRoleAllowed ? "opacity-50" : "card-hover cursor-pointer"}`}
+                    <motion.div
+                      key={type.id}
+                      whileHover={!isDisabled ? { scale: 1.01 } : {}}
+                      whileTap={!isDisabled ? { scale: 0.99 } : {}}
+                      onClick={(e) => {
+                        if (isDisabled) return;
+                        if (isCompleted && !isFullyCompleted) {
+                          // Se è incompleto, apre automaticamente in modalità Resume
+                          handleResumeCheck(e, type.id, completedCheckObj);
+                        } else if (!isCompleted) {
+                          setCheckType(type.id);
+                        }
+                      }}
+                      className={`bg-card p-6 rounded-xl border border-border text-left relative overflow-hidden transition-all duration-200 ${
+                        isCompleted && isFullyCompleted && !isAdmin
+                          ? "opacity-60 bg-green-50 border-green-200"
+                          : isCompleted && isFullyCompleted && isAdmin
+                            ? "border-green-300 shadow-sm"
+                            : isCompleted && !isFullyCompleted
+                              ? "bg-amber-50 border-amber-300 shadow-md card-hover cursor-pointer"
+                              : !isPreviousCompleted
+                                ? "opacity-60 bg-gray-100 border-gray-200 grayscale"
+                                : !isRoleAllowed
+                                  ? "opacity-50"
+                                  : "card-hover cursor-pointer"
+                      }`}
                     >
                       <div className="flex items-center space-x-4">
-                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${isCompleted ? "bg-green-100" : "bg-surface"}`}>
-                          {!isPreviousCompleted && !isCompleted ? <Lock className="w-6 h-6 text-gray-500" /> : <Icon className={`w-6 h-6 ${isCompleted ? "text-green-600" : type.color}`} />}
+                        <div
+                          className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${
+                            isCompleted && isFullyCompleted
+                              ? "bg-green-100"
+                              : isCompleted && !isFullyCompleted
+                                ? "bg-amber-100"
+                                : "bg-surface"
+                          }`}
+                        >
+                          {!isPreviousCompleted && !isCompleted ? (
+                            <Lock className="w-6 h-6 text-gray-500" />
+                          ) : (
+                            <Icon
+                              className={`w-6 h-6 ${
+                                isCompleted && isFullyCompleted
+                                  ? "text-green-600"
+                                  : isCompleted && !isFullyCompleted
+                                    ? "text-amber-600"
+                                    : type.color
+                              }`}
+                            />
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-semibold text-foreground truncate">{type.name}</h3>
-                          <p className={`text-sm truncate ${statusColor}`}>{statusMessage}</p>
+                          <h3 className="text-lg font-semibold text-foreground truncate">
+                            {type.name}
+                          </h3>
+                          <p className={`text-sm truncate ${statusColor}`}>
+                            {statusMessage}
+                          </p>
                         </div>
                       </div>
 
-                      {/* TASTO SBLOCCA - SOLO AMMINISTRATORI */}
-                      {isCompleted && isAdmin && (
-                         <div className="mt-4 pt-3 border-t border-green-200/50 flex justify-end">
-                            <button
-                               onClick={(e) => handleResumeCheck(e, type.id, completedCheckObj)}
-                               className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 shadow-sm"
-                            >
-                               <RefreshCw className="w-3.5 h-3.5" /> Sblocca e Aggiungi Materiale
-                            </button>
-                         </div>
+                      {/* TASTO SBLOCCA - SOLO AMMINISTRATORI (Mostrato solo se il check è fully completed) */}
+                      {isCompleted && isFullyCompleted && isAdmin && (
+                        <div className="mt-4 pt-3 border-t border-green-200/50 flex justify-end">
+                          <button
+                            onClick={(e) =>
+                              handleResumeCheck(e, type.id, completedCheckObj)
+                            }
+                            className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 shadow-sm"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Sblocca e
+                            Aggiungi Materiale
+                          </button>
+                        </div>
                       )}
                     </motion.div>
                   );
@@ -1123,26 +1677,48 @@ export default function CheckPage({ params }) {
     <>
       <div className="min-h-screen bg-surface pb-20">
         <div className="containerMod py-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto">
-
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-4xl mx-auto"
+          >
             <div className="flex items-center justify-between mb-6 sticky top-0 z-10 bg-surface py-2 backdrop-blur-sm bg-opacity-90">
-              <button onClick={() => { setCheckType(""); setResumingCheckId(null); setCheckedItems({}); }} className="flex items-center space-x-2 text-muted-foreground hover:text-foreground">
+              <button
+                onClick={() => {
+                  setCheckType("");
+                  setResumingCheckId(null);
+                  setCheckedItems({});
+                }}
+                className="flex items-center space-x-2 text-muted-foreground hover:text-foreground"
+              >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Cambia Tipo Check</span>
               </button>
               <div className="text-right">
-                <p className="text-sm text-muted-foreground">Utente: {currentUser.nome}</p>
-                <p className="text-sm text-muted-foreground">Ruolo: {userRole}</p>
-                <p className="text-sm text-muted-foreground font-semibold">{checkTypes.find((t) => t.id === checkType)?.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  Utente: {currentUser.nome}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Ruolo: {userRole}
+                </p>
+                <p className="text-sm text-muted-foreground font-semibold">
+                  {checkTypes.find((t) => t.id === checkType)?.name}
+                </p>
               </div>
             </div>
 
             <AnimatePresence>
               {lastScannedMessage && (
-                <motion.div initial={{ opacity: 0, y: -50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: -50, x: "-50%" }}
-                  className="fixed top-20 left-1/2 z-50 bg-green-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-3">
+                <motion.div
+                  initial={{ opacity: 0, y: -50, x: "-50%" }}
+                  animate={{ opacity: 1, y: 0, x: "-50%" }}
+                  exit={{ opacity: 0, y: -50, x: "-50%" }}
+                  className="fixed top-20 left-1/2 z-50 bg-green-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-3"
+                >
                   <Wifi className="w-6 h-6 animate-pulse" />
-                  <span className="font-bold text-lg">{lastScannedMessage}</span>
+                  <span className="font-bold text-lg">
+                    {lastScannedMessage}
+                  </span>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1151,8 +1727,14 @@ export default function CheckPage({ params }) {
               <div className="bg-amber-100 border border-amber-300 text-amber-800 px-4 py-3 rounded-xl mb-6 flex items-start gap-3 shadow-sm">
                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
                 <div>
-                  <p className="text-sm font-bold">Stai modificando un check già completato</p>
-                  <p className="text-xs mt-0.5">I materiali verificati in precedenza sono pre-selezionati. Scansiona il materiale dimenticato/aggiunto e premi Completa per aggiornare l'elenco nel server.</p>
+                  <p className="text-sm font-bold">
+                    Stai modificando un check già completato
+                  </p>
+                  <p className="text-xs mt-0.5">
+                    I materiali verificati in precedenza sono pre-selezionati.
+                    Scansiona il materiale dimenticato/aggiunto e premi Completa
+                    per aggiornare l'elenco nel server.
+                  </p>
                 </div>
               </div>
             )}
@@ -1160,30 +1742,50 @@ export default function CheckPage({ params }) {
             <div className="bg-card p-6 rounded-xl border border-border mb-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-foreground">Progresso Check</h2>
+                  <h2 className="text-xl font-semibold text-foreground">
+                    Progresso Check
+                  </h2>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {allPartyShelves.map((s) => {
-                      const currentBase = isVirtualShelf ? shelfId.substring(1) : shelfId;
+                      const currentBase = isVirtualShelf
+                        ? shelfId.substring(1)
+                        : shelfId;
                       return (
-                        <span key={s} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                          s === currentBase
-                            ? "bg-primary text-white border-primary"
-                            : "bg-surface text-muted-foreground border-border"
-                        }`}>#{s}</span>
+                        <span
+                          key={s}
+                          className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                            s === currentBase
+                              ? "bg-primary text-white border-primary"
+                              : "bg-surface text-muted-foreground border-border"
+                          }`}
+                        >
+                          #{s}
+                        </span>
                       );
                     })}
                   </div>
                 </div>
-                <span className="text-sm text-muted-foreground">{getCheckedCount()}/{getTotalItems()} completati</span>
+                <span className="text-sm text-muted-foreground">
+                  {getCheckedCount()}/{getTotalItems()} completati
+                </span>
               </div>
               <div className="w-full bg-surface rounded-full h-3">
-                <motion.div initial={{ width: 0 }} animate={{ width: `${getProgress()}%` }} className="bg-primary h-3 rounded-full transition-all duration-300" />
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${getProgress()}%` }}
+                  className="bg-primary h-3 rounded-full transition-all duration-300"
+                />
               </div>
             </div>
 
             <div className="space-y-6">
               {materialData.map((macro) => (
-                <motion.div key={macro.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card p-6 rounded-xl border border-border">
+                <motion.div
+                  key={macro.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-card p-6 rounded-xl border border-border"
+                >
                   <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center space-x-2">
                     <Package className="w-5 h-5 text-primary" />
                     <span>{macro.name}</span>
@@ -1192,29 +1794,52 @@ export default function CheckPage({ params }) {
                   <div className="space-y-4">
                     {macro.categories.map((category) => {
                       const catChecked = isCategoryChecked(macro, category);
-                      const hasItems = category.items && category.items.length > 0;
+                      const hasItems =
+                        category.items && category.items.length > 0;
 
                       return (
-                        <div key={category.id} className="border border-border rounded-lg p-4">
+                        <div
+                          key={category.id}
+                          className="border border-border rounded-lg p-4"
+                        >
                           <div className="flex items-center gap-2 mb-3">
-                            {catChecked ? <CheckCircle className="w-4 h-4 text-green-600 shrink-0" /> : <Circle className="w-4 h-4 text-muted-foreground shrink-0" />}
-                            <h4 className={`font-medium ${catChecked ? "text-green-700" : "text-foreground"}`}>{category.name}</h4>
+                            {catChecked ? (
+                              <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                            ) : (
+                              <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
+                            )}
+                            <h4
+                              className={`font-medium ${catChecked ? "text-green-700" : "text-foreground"}`}
+                            >
+                              {category.name}
+                            </h4>
                             {hasItems && (
-                              <span className={`text-xs px-2 py-0.5 rounded ml-1 ${categoriaConsentita ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
-                                {categoriaConsentita ? "Scan categoria ✓" : "Scan singoli elementi"}
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded ml-1 ${categoriaConsentita ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}
+                              >
+                                {categoriaConsentita
+                                  ? "Scan categoria ✓"
+                                  : "Scan singoli elementi"}
                               </span>
                             )}
                             {category.materiale_mancante && (
-                              <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded ml-auto">Mancante</span>
+                              <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded ml-auto">
+                                Mancante
+                              </span>
                             )}
                           </div>
 
                           {!hasItems ? (
-                            <div className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
-                              category.materiale_mancante || reportedItemIds.has(category.id)
-                                ? "opacity-50 bg-gray-100 border-gray-200"
-                                : catChecked ? "bg-green-50 border-green-200 text-green-800" : "bg-surface border-border text-foreground"
-                            }`}>
+                            <div
+                              className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                category.materiale_mancante ||
+                                reportedItemIds.has(category.id)
+                                  ? "opacity-50 bg-gray-100 border-gray-200"
+                                  : catChecked
+                                    ? "bg-green-50 border-green-200 text-green-800"
+                                    : "bg-surface border-border text-foreground"
+                              }`}
+                            >
                               {category.materiale_mancante ? (
                                 <div className="w-5 h-5 bg-gray-300 rounded-full" />
                               ) : reportedItemIds.has(category.id) ? (
@@ -1225,18 +1850,32 @@ export default function CheckPage({ params }) {
                                 <ScanLine className="w-5 h-5 text-muted-foreground opacity-50" />
                               )}
                               <span className="text-sm font-medium flex-1">
-                                {category.materiale_mancante ? "Mancante" : reportedItemIds.has(category.id) ? `Segnalato: ${getReportInfo(category.id)?.tipo || "problema"}` : catChecked ? "Verificato via NFC" : "In attesa di scansione NFC"}
+                                {category.materiale_mancante
+                                  ? "Mancante"
+                                  : reportedItemIds.has(category.id)
+                                    ? `Segnalato: ${getReportInfo(category.id)?.tipo || "problema"}`
+                                    : catChecked
+                                      ? "Verificato via NFC"
+                                      : "In attesa di scansione NFC"}
                               </span>
-                              {!category.materiale_mancante && !reportedItemIds.has(category.id) && (
-                                <button
-                                  onClick={(e) => openDamageModal(e, category, category, macro)}
-                                  className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold transition-colors"
-                                  title="Segnala danneggiato/rubato"
-                                >
-                                  <TriangleAlert className="w-3.5 h-3.5" />
-                                  Segnala
-                                </button>
-                              )}
+                              {!category.materiale_mancante &&
+                                !reportedItemIds.has(category.id) && (
+                                  <button
+                                    onClick={(e) =>
+                                      openDamageModal(
+                                        e,
+                                        category,
+                                        category,
+                                        macro,
+                                      )
+                                    }
+                                    className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold transition-colors"
+                                    title="Segnala danneggiato/rubato"
+                                  >
+                                    <TriangleAlert className="w-3.5 h-3.5" />
+                                    Segnala
+                                  </button>
+                                )}
                             </div>
                           ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1248,11 +1887,16 @@ export default function CheckPage({ params }) {
                                 const reportInfo = getReportInfo(item.id);
 
                                 return (
-                                  <div key={item.id} className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
-                                    isDisabled || isReported
-                                      ? "opacity-60 cursor-not-allowed bg-gray-100 border-gray-200"
-                                      : isChecked ? "bg-green-50 border-green-200 text-green-800" : "bg-surface border-border text-foreground"
-                                  }`}>
+                                  <div
+                                    key={item.id}
+                                    className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                      isDisabled || isReported
+                                        ? "opacity-60 cursor-not-allowed bg-gray-100 border-gray-200"
+                                        : isChecked
+                                          ? "bg-green-50 border-green-200 text-green-800"
+                                          : "bg-surface border-border text-foreground"
+                                    }`}
+                                  >
                                     {isDisabled ? (
                                       <div className="w-5 h-5 bg-gray-300 rounded-full shrink-0" />
                                     ) : isReported ? (
@@ -1264,10 +1908,15 @@ export default function CheckPage({ params }) {
                                     )}
 
                                     <span className="text-sm font-medium flex-1 text-left min-w-0">
-                                      <span className="truncate block">{item.name}</span>
+                                      <span className="truncate block">
+                                        {item.name}
+                                      </span>
                                       {isReported && reportInfo && (
-                                        <span className={`inline-block mt-0.5 text-xs px-1.5 py-0.5 rounded border font-semibold ${DAMAGE_TYPE_CONFIG[reportInfo.tipo]?.badge || "bg-gray-100 text-gray-600 border-gray-200"}`}>
-                                          {DAMAGE_TYPE_CONFIG[reportInfo.tipo]?.label || reportInfo.tipo}
+                                        <span
+                                          className={`inline-block mt-0.5 text-xs px-1.5 py-0.5 rounded border font-semibold ${DAMAGE_TYPE_CONFIG[reportInfo.tipo]?.badge || "bg-gray-100 text-gray-600 border-gray-200"}`}
+                                        >
+                                          {DAMAGE_TYPE_CONFIG[reportInfo.tipo]
+                                            ?.label || reportInfo.tipo}
                                         </span>
                                       )}
                                       {isDisabled && !isReported && (
@@ -1279,12 +1928,21 @@ export default function CheckPage({ params }) {
 
                                     {!isDisabled && !isReported && (
                                       <button
-                                        onClick={(e) => openDamageModal(e, item, category, macro)}
+                                        onClick={(e) =>
+                                          openDamageModal(
+                                            e,
+                                            item,
+                                            category,
+                                            macro,
+                                          )
+                                        }
                                         className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold transition-colors"
                                         title="Segnala danneggiato/rubato"
                                       >
                                         <TriangleAlert className="w-3.5 h-3.5" />
-                                        <span className="hidden sm:inline">Segnala</span>
+                                        <span className="hidden sm:inline">
+                                          Segnala
+                                        </span>
                                       </button>
                                     )}
                                   </div>
@@ -1300,26 +1958,50 @@ export default function CheckPage({ params }) {
               ))}
             </div>
 
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="sticky bottom-20 mt-8 bg-card p-6 rounded-xl border border-border shadow-lg">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="sticky bottom-20 mt-8 bg-card p-6 rounded-xl border border-border shadow-lg"
+            >
               <label className="flex items-center space-x-3 cursor-pointer">
-                <input type="checkbox" checked={materialSmarrito} onChange={(e) => setMaterialSmarrito(e.target.checked)} className="w-6 h-6 rounded border-border text-primary focus:ring-primary" />
-                <span className="font-bold text-foreground">Materiale Smarrito / Perso</span>
+                <input
+                  type="checkbox"
+                  checked={materialSmarrito}
+                  onChange={(e) => setMaterialSmarrito(e.target.checked)}
+                  className="w-6 h-6 rounded border-border text-primary focus:ring-primary"
+                />
+                <span className="font-bold text-foreground">
+                  Materiale Smarrito / Perso
+                </span>
               </label>
-              <p className="text-sm text-muted-foreground mt-2 pl-9">Spunta questa casella solo se hai scansionato tutto il possibile e manca qualcosa.</p>
+              <p className="text-sm text-muted-foreground mt-2 pl-9">
+                Spunta questa casella solo se hai scansionato tutto il possibile
+                e manca qualcosa.
+              </p>
             </motion.div>
 
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="sticky bottom-4 mt-4">
-              <button onClick={handleSubmitCheck} disabled={isSubmitting || (!isAllItemsChecked() && !materialSmarrito)}
-                className={`w-full py-4 rounded-xl font-semibold text-white transition-all shadow-xl ${isSubmitting || (!isAllItemsChecked() && !materialSmarrito) ? "bg-muted cursor-not-allowed" : "btn-primary transform hover:scale-[1.02]"}`}>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="sticky bottom-4 mt-4"
+            >
+              <button
+                onClick={handleSubmitCheck}
+                disabled={
+                  isSubmitting || (!isAllItemsChecked() && !materialSmarrito)
+                }
+                className={`w-full py-4 rounded-xl font-semibold text-white transition-all shadow-xl ${isSubmitting || (!isAllItemsChecked() && !materialSmarrito) ? "bg-muted cursor-not-allowed" : "btn-primary transform hover:scale-[1.02]"}`}
+              >
                 {isSubmitting ? (
                   <div className="flex items-center justify-center space-x-2">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Invio in corso...</span>
                   </div>
-                ) : `Completa Check (${getCheckedCount()}/${getTotalItems()})`}
+                ) : (
+                  `Completa Check (${getCheckedCount()}/${getTotalItems()})`
+                )}
               </button>
             </motion.div>
-
           </motion.div>
         </div>
       </div>

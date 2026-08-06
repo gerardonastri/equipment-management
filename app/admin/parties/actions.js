@@ -677,9 +677,9 @@ export async function updateParty(partyId, formData) {
   // ── LOGICA RESET STATO ──
   // Se è stato aggiunto nuovo materiale, la festa torna allo stato iniziale
   let finalStato = formData.stato;
-  if (materialAdded && prevParty?.stato !== "iniziale") {
-    finalStato = "iniziale";
-  }
+  // if (materialAdded && prevParty?.stato !== "iniziale") {
+  //   finalStato = "iniziale";
+  // }
 
   const partyData = {
     nome:               formData.nome,
