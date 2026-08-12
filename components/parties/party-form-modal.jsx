@@ -47,6 +47,7 @@ export function PartyFormModal({
   selectedSingleItems,
   onSingleItemToggle,
   currentUserRole,
+  currentUserName,
 }) {
   const [isSpecial, setIsSpecial] = useState(false);
   const [expandedMacro, setExpandedMacro] = useState({});
@@ -60,6 +61,17 @@ export function PartyFormModal({
   const [specialSearchQuery, setSpecialSearchQuery] = useState("");
   const [localSpecialItems, setLocalSpecialItems] = useState([]);
   const [isLoadingSpecial, setIsLoadingSpecial] = useState(false);
+
+  const authorizedUsers = [
+    "gianlucas",
+    "sabatino dr",
+    "gerardo nastri",
+    "Gianlucas",
+    "Sabatino DR",
+    "Gerardo Nastri",
+  ];
+  const canEditState =
+    currentUserName && authorizedUsers.includes(currentUserName.toLowerCase());
 
   useEffect(() => {
     if (!isOpen) {
@@ -667,7 +679,7 @@ export function PartyFormModal({
             <label className="block text-sm font-medium text-foreground mb-2">
               Stato
             </label>
-            {currentUserRole === "amministratore" ? (
+            {canEditState ? ( // SOSTITUITO: {currentUserRole === "amministratore" ? (
               <select
                 value={party.stato}
                 onChange={(e) =>

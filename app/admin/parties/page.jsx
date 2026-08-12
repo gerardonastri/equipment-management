@@ -147,7 +147,8 @@ export default function PartiesPage() {
 
   // ── LOGICA MODIFICATA: Recupero ruolo utente ──
   const [currentUserRole, setCurrentUserRole] = useState(null);
-  
+  const [currentUserName, setCurrentUserName] = useState(null);
+
   useEffect(() => {
     const fetchUserRole = async () => {
       try {
@@ -157,12 +158,15 @@ export default function PartiesPage() {
         if (user) {
           const { data, error: dbError } = await supabaseBrowserClient
             .from('users')
-            .select('ruolo')
+            .select('ruolo, nome') // MODIFICATO: aggiunto 'nome'
             .eq('id', user.id)
             .single();
             
           if (dbError) throw dbError;
-          if (data) setCurrentUserRole(data.ruolo);
+          if (data) {
+            setCurrentUserRole(data.ruolo);
+            setCurrentUserName(data.nome); // NUOVO: salva il nome
+          }
         }
       } catch (err) {
         console.error("Error fetching user role:", err);
@@ -609,7 +613,8 @@ export default function PartiesPage() {
             specialItemHierarchy={specialItemHierarchy}
             selectedSingleItems={selectedSingleItems}
             onSingleItemToggle={toggleSingleItemSelection}
-            currentUserRole={currentUserRole} // PROP AGGIUNTA
+            currentUserRole={currentUserRole} 
+            currentUserName={currentUserName}
           />
 
           <MaterialModal
