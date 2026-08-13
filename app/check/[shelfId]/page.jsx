@@ -750,55 +750,33 @@ export default function CheckPage({ params }) {
     );
   }
 
-  if (currentUser && partyData?.animatore_id) {
+  // Controllo Autorizzazione Centralizzato
+  if (currentUser && partyData) {
     const role = currentUser.ruolo;
     const animatoriIds = partyData.animatori_ids || [];
     const responsabiliIds = partyData.responsabili_ids || [];
     const driversIds = partyData.drivers_ids || [];
 
-    if (role === "animatore") {
-      const isAssigned =
-        partyData.animatore_id === currentUser.id ||
-        animatoriIds.includes(currentUser.id);
-      if (!isAssigned) {
-        return (
-          <MessageScreen
-            icon={<AlertCircle className="w-16 h-16 text-red-500" />}
-            iconBgClass="bg-transparent"
-            title="Accesso Negato"
-          >
-            Non sei tra gli animatori assegnati a questa festa.
-          </MessageScreen>
-        );
-      }
-    }
+    // Verifica se l'utente è assegnato alla festa in QUALSIASI capacity
+    const isAssigned =
+      partyData.animatore_id === currentUser.id ||
+      partyData.magazziniere_id === currentUser.id ||
+      animatoriIds.includes(currentUser.id) ||
+      responsabiliIds.includes(currentUser.id) ||
+      driversIds.includes(currentUser.id);
 
-    if (role === "responsabile" && responsabiliIds.length > 0) {
-      if (!responsabiliIds.includes(currentUser.id)) {
-        return (
-          <MessageScreen
-            icon={<AlertCircle className="w-16 h-16 text-red-500" />}
-            iconBgClass="bg-transparent"
-            title="Accesso Negato"
-          >
-            Non sei tra i responsabili assegnati a questa festa.
-          </MessageScreen>
-        );
-      }
-    }
-
-    if (role === "driver" && driversIds.length > 0) {
-      if (!driversIds.includes(currentUser.id)) {
-        return (
-          <MessageScreen
-            icon={<AlertCircle className="w-16 h-16 text-red-500" />}
-            iconBgClass="bg-transparent"
-            title="Accesso Negato"
-          >
-            Non sei tra i driver assegnati a questa festa.
-          </MessageScreen>
-        );
-      }
+    // Amministratori e magazzinieri (solitamente) necessitano di accesso globale.
+    // Gli operatori sul campo vengono bloccati se non sono stati assegnati alla festa.
+    if (["animatore", "responsabile", "driver"].includes(role) && !isAssigned) {
+      return (
+        <MessageScreen
+          icon={<AlertCircle className="w-16 h-16 text-red-500" />}
+          iconBgClass="bg-transparent"
+          title="Accesso Negato"
+        >
+          Non sei assegnato a questa festa.
+        </MessageScreen>
+      );
     }
   }
 
