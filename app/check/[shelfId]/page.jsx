@@ -103,6 +103,13 @@ export default function CheckPage({ params }) {
       name: "Carico dal Deposito allo Scaffale",
       icon: Home,
       color: "text-primary",
+      allowedRoles: ["magazziniere", "amministratore"],
+    },
+    scaffale_furgone: {
+      id: "scaffale_furgone",
+      name: "Carico dallo Scaffale al Furgone",
+      icon: Truck,
+      color: "text-secondary",
       allowedRoles: [
         "magazziniere",
         "amministratore",
@@ -110,13 +117,6 @@ export default function CheckPage({ params }) {
         "responsabile",
         "driver",
       ],
-    },
-    scaffale_furgone: {
-      id: "scaffale_furgone",
-      name: "Carico dallo Scaffale al Furgone",
-      icon: Truck,
-      color: "text-secondary",
-      allowedRoles: ["magazziniere", "amministratore"],
     },
     furgone_scaffale: {
       id: "furgone_scaffale",
